@@ -15,6 +15,12 @@ constexpr char TAG[] = "ModbusNode";
 
 ModbusNode::ModbusNode()
 {
+    // Initialize mutex for thread safety
+    _mutex = xSemaphoreCreateMutex();
+    if (!_mutex) {
+        ESP_LOGE(TAG, "Failed to create mutex for ModbusNode");
+    }
+    
     running_ = false;
     tcp_phy = nullptr;
     tcp_interface = nullptr;
@@ -23,6 +29,14 @@ ModbusNode::ModbusNode()
     rtu_interface = nullptr;
     interface_type = ModbusNodeInterfaceType::NONE;
     state = ModbusNodeState::IDLE;
+    uartCfg = {
+        .uartNum = UART_NUM_MAX,
+        .baud = 0,
+        .config = ModbusHAL::UART::CONFIG_8N1,
+        .rxPin = 0,
+        .txPin = 0,
+        .dePin = 0,
+    };
 }
 
 /*
@@ -51,14 +65,16 @@ ModbusNode *ModbusNode::create(const char *ip, uint16_t port)
  * @param iface The interface to use for the node. RTU:/dev/ttyUSB0:115200:8N1:O,RTU:UART_1:115200:8N1:E,
  * @return The node
  */
-ModbusNode *ModbusNode::create(const char *iface)
+ModbusNode *ModbusNode::create(const char *iface, ModbusHAL::UART::Config uartCfg)
 {
+    
     ModbusNode *node = new ModbusNode();
     if (node)
     {
         ESP_LOGI(TAG, "Creating node for RTU interface: %s", iface);
         snprintf(node->name_, sizeof(node->name_), "%s", iface);
         node->interface_type = ModbusNodeInterfaceType::RTU;
+        node->uartCfg = uartCfg;
         return node;
     }
     return nullptr;
@@ -72,12 +88,25 @@ ModbusNode::~ModbusNode()
     {
         ModbusTaskPool::g_taskPool.deleteTask(thread_);
     }
+    
+    // Clean up all devices first
+    for (auto device : devices) {
+        if (device) {
+            delete device;
+        }
+    }
+    devices.clear();
+    
     deinitialize_communication();
+    
+    if (_mutex) {
+        vSemaphoreDelete(_mutex);
+    }
 }
 
 void ModbusNode::start()
 {
-
+    initialize_communication();
     ESP_LOGI(TAG, "%s: Starting ModbusNode.", name_);
     if (running_)
     {
@@ -101,27 +130,14 @@ void ModbusNode::start()
     }
 }
 
-void ModbusNode::stop()
-{
-    if (!running_)
-    {
-        ESP_LOGI(TAG, "%s: Already stopped.", name_);
-        return; // Already stopped
-    }
-    ESP_LOGI(TAG, "%s: Stopping ModbusNode.", name_);
-    running_ = false;
-
-    if (thread_)
-    {
-        vTaskDelete(thread_);
-        thread_ = nullptr;
-    }
-
-    state = ModbusNodeState::IDLE;
-}
-
 void ModbusNode::deinitialize_communication()
 {
+    ScopedMutex lock(_mutex);
+    if (!lock.isLocked()) {
+        ESP_LOGE(TAG, "%s: Failed to acquire mutex for communication deinitialization", name_);
+        return;
+    }
+    
     if (interface_type == ModbusNodeInterfaceType::TCP)
     {
         // Delete the tasks already
@@ -157,7 +173,7 @@ const char *ModbusNode::get_iface()
     return name_;
 }
 
-// Thread wrapper function implementation
+// Thread wrapper function implementation for FreeRTOS task
 void ModbusNode::thread_wrapper(void *arg)
 {
     ModbusNode *node = static_cast<ModbusNode *>(arg);
@@ -168,50 +184,50 @@ void ModbusNode::thread_wrapper(void *arg)
     }
 }
 
+
 void ModbusNode::initialize_communication()
 {
     if (interface_type == ModbusNodeInterfaceType::TCP)
     {
-        heap_caps_check_integrity(MALLOC_CAP_SPIRAM, true);
+        // Allocate & Create for PHY
         tcp_phy = static_cast<ModbusHAL::TCP*>(psram_malloc(sizeof(ModbusHAL::TCP)));
-        if (!tcp_phy) {
-            ESP_LOGE(TAG, "Failed to allocate TCP PHY in PSRAM");
+        tcp_interface = static_cast<ModbusInterface::TCP*>(psram_malloc(sizeof(ModbusInterface::TCP)));
+        client = static_cast<Modbus::Client*>(psram_malloc(sizeof(Modbus::Client)));
+
+        if(!tcp_phy || !tcp_interface || !client)
+        {
+            ESP_LOGE(TAG, "Failed to allocate TCP PHY, interface or client in PSRAM");
+            if(tcp_phy)
+            {
+                free(tcp_phy);
+                tcp_phy = nullptr;
+            }
+            if(tcp_interface)
+            {
+                free(tcp_interface);
+                tcp_interface = nullptr;
+            }
+            if(client)
+            {
+                free(client);
+                client = nullptr;
+            }
             return;
         }
-        tcp_phy = new (tcp_phy) ModbusHAL::TCP();
-        heap_caps_check_integrity(MALLOC_CAP_SPIRAM, true);
 
-        if(tcp_phy)
-        {
-            ESP_LOGI(TAG, "%s: TCP PHY allocated", name_);
-        }
-        else
-        {
-            ESP_LOGE(TAG, "%s: Failed to allocate TCP PHY", name_);
-        }
-        heap_caps_check_integrity(MALLOC_CAP_SPIRAM, true);
-
-        tcp_interface = new ModbusInterface::TCP(*tcp_phy, Modbus::CLIENT);
-
-        ESP_LOGI(TAG, "%s: TCP interface allocated", name_);
-
-
-        if (!tcp_interface) {
-            ESP_LOGE(TAG, "%s: Failed to allocate TCP interface in PSRAM", name_);
-            return;
-        }
-        client = new Modbus::Client(*tcp_interface, 10000);
-
+        tcp_phy = new (tcp_phy) ModbusHAL::TCP(ip, port);
+        tcp_interface = new (tcp_interface) ModbusInterface::TCP(*tcp_phy,Modbus::CLIENT);
 
         // Initialize the TCP connection
         bool success = tcp_phy->begin();
         if (!success)
         {
-            ESP_LOGE(TAG, "%s: Failed to initialize communication on TCP", name_);
+            ESP_LOGE(TAG, "%s:123 Failed to initialize communication on TCP", name_);
             return;
         }
         ez_phy_task_ = ModbusTaskPool::g_taskPool.createTask(tcp_phy->tcpTask, name_, 10*4096, tcp_phy, 5);
 
+        client = new (client) Modbus::Client(*tcp_interface, 10000);
         Modbus::Client::Result result = client->begin();
         if (result != Modbus::Client::SUCCESS)
         {
@@ -227,15 +243,8 @@ void ModbusNode::initialize_communication()
     }
     else if (interface_type == ModbusNodeInterfaceType::RTU)
     {
+
         ESP_LOGI(TAG, "%s: Initializing communication on RTU", name_);
-        ModbusHAL::UART::Config uartCfg = {
-            .uartNum = UART_NUM_2,
-            .baud = 38400,
-            .config = ModbusHAL::UART::CONFIG_8N1,
-            .rxPin = 44,
-            .txPin = 43,
-            .dePin = 6,
-        };
         ESP_LOGI(TAG, "%s: UART config: %d, %lu, %lu, %d, %d %d", name_, uartCfg.uartNum, (unsigned long)uartCfg.baud, (unsigned long)uartCfg.config, uartCfg.rxPin, uartCfg.txPin, uartCfg.dePin);
         
         // Pre-allocate PSRAM memory for RTU objects
@@ -296,11 +305,6 @@ void ModbusNode::initialize_communication()
         ESP_LOGI(TAG, "RTU::interface %p", rtu_interface);
         ez_interface_task_ = ModbusTaskPool::g_taskPool.createTask(ModbusInterface::RTU::rxTxTask, name_, 10*4096, rtu_interface, 5);
 
-
-    }
-    else
-    {
-        ESP_LOGE(TAG, "%s: Interface type not supported.", name_);
     }
 }
 
@@ -309,14 +313,21 @@ void ModbusNode::run_worker()
 {
     ESP_LOGI(TAG, "%s: Worker started.", name_);
     vTaskDelay(pdMS_TO_TICKS(2000));
+    
     while (running_)
     {
-        ESP_LOGI(TAG, "%s: Worker loop", name_);
+        // Check if client is available
+        if (!client)
+        {
+            ESP_LOGE(TAG, "%s: Client not initialized", name_);
+            vTaskDelay(pdMS_TO_TICKS(1000));
+            continue;
+        }
+        
         for (auto device : devices)
         {
             if (!device)
                 continue;
-            ESP_LOGI(TAG, "%s: Device %s", name_, device->get_name());
             const auto &requests = device->get_requests_list();
             for (auto request : requests)
             {
@@ -330,17 +341,8 @@ void ModbusNode::run_worker()
                     continue;
                 }
 
-                if (!request)
-                    continue;
-
                 ESP_LOGI(TAG, "%s: Device %s request %s", name_, device->get_name(), request->get_name());
 
-                // Check if client is available
-                if (!client)
-                {
-                    ESP_LOGE(TAG, "%s: Client not initialized", name_);
-                    continue;
-                }
 
                 Modbus::Frame frame;
                 frame.type = Modbus::REQUEST;
@@ -371,23 +373,23 @@ void ModbusNode::run_worker()
                 request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
                 ESP_LOGI(TAG, "%s: Request %s completed", name_, request->get_name());
             }
-            ESP_LOGI(TAG, "%s: Device %s requests completed", name_, device->get_name());
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
     ESP_LOGI(TAG, "%s: Worker stopped.", name_);
     vTaskDelete(nullptr);
 }
 
-// Main worker function
-void ModbusNode::worker()
-{
-}
-
 // Add device to this node
 void ModbusNode::add_device(ModbusDevice *device)
 {
+    ScopedMutex lock(_mutex);
+    if (!lock.isLocked()) {
+        ESP_LOGE(TAG, "%s: Failed to acquire mutex for device addition", name_);
+        return;
+    }
+    
     if (device)
     {
         devices.push_front(device); // Store the pointer, not a copy
@@ -400,6 +402,12 @@ void ModbusNode::add_device(ModbusDevice *device)
 // Remove device from this node
 void ModbusNode::remove_device(ModbusDevice *device)
 {
+    ScopedMutex lock(_mutex);
+    if (!lock.isLocked()) {
+        ESP_LOGE(TAG, "%s: Failed to acquire mutex for device removal", name_);
+        return;
+    }
+    
     if (device)
     {
         ESP_LOGI(TAG, "%s: Device %s removed.", name_, device->get_name());
@@ -436,6 +444,12 @@ void ModbusNode::operator delete[](void *ptr) noexcept
 
 bool ModbusNode::has_device(ModbusDevice *device)
 {
+    ScopedMutex lock(_mutex);
+    if (!lock.isLocked()) {
+        ESP_LOGE(TAG, "%s: Failed to acquire mutex for device check", name_);
+        return false;
+    }
+    
     for (auto &dev : devices)
     {
         if (dev == device){
@@ -447,5 +461,11 @@ bool ModbusNode::has_device(ModbusDevice *device)
 
 bool ModbusNode::empty()
 {
+    ScopedMutex lock(_mutex);
+    if (!lock.isLocked()) {
+        ESP_LOGE(TAG, "%s: Failed to acquire mutex for empty check", name_);
+        return true;
+    }
+    
     return devices.empty();
 }
