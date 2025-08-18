@@ -5,6 +5,7 @@
 #include "modbus_task_pool.h"
 #include "esp_log.h"
 #include <cstdlib>
+#include "psram.h"
 
 static const char *TAG = "ModbusTaskPool";
 
