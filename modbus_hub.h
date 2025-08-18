@@ -32,4 +32,5 @@ class ModbusHub
     ModbusNode *create_node(const char *iface);
     ModbusNode *get_node(const char *ip, uint16_t port);
     ModbusNode *get_node(const char *iface);
+    void remove_node(ModbusNode *node);
 };

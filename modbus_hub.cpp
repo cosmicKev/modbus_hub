@@ -12,6 +12,7 @@ ModbusHub::ModbusHub()
 
 ModbusHub::~ModbusHub()
 {
+    ESP_LOGI(TAG, "Destroying ModbusHub");
 }
 
 ModbusNode *ModbusHub::create_node(const char *ip, uint16_t port)
@@ -22,10 +23,15 @@ ModbusNode *ModbusHub::create_node(const char *ip, uint16_t port)
         nodes.push_front(tmp); // Store the pointer, not a copy
         // Gets the pointer we just added.
         ModbusNode *node = nodes.front();
-        // Initializes EzModbus
-        node->initialize_communication();
+        if (!node)
+        {
+            ESP_LOGE(TAG, "Failed to create node for TCP device %s", ip);
+            return nullptr;
+        }
+        ESP_LOGI(TAG, "Node created for TCP device %s with Node %p", node->get_iface(), node);
         return node;
     }
+    ESP_LOGE(TAG, "Failed to create node for TCP device %s", ip);
     return nullptr;
 }
 
@@ -36,7 +42,6 @@ ModbusNode *ModbusHub::create_node(const char *iface)
     {
         nodes.push_front(tmp); // Store the pointer, not a copy
         ModbusNode *node = nodes.front();
-        node->initialize_communication();
         return node;
     }
     return nullptr;
@@ -49,10 +54,20 @@ ModbusDevice *ModbusHub::add_tcp_device(const char *name, char *ip, uint16_t por
     if (node == nullptr)
     {
         node = create_node(ip, port);
-        node->start();
+        ESP_LOGI(TAG, "Node created for TCP device %s", node->get_iface());
+        if (node)
+        {
+            node->initialize_communication();
+        }
+        else
+        {
+            ESP_LOGE(TAG, "Failed to create node for TCP device %s", name);
+            return nullptr;
+        }
     }
     ModbusDevice *device = new ModbusDevice(name, address);
     node->add_device(device);
+    node->start();
     return device;
 }
 
@@ -62,18 +77,48 @@ ModbusDevice *ModbusHub::add_rtu_device(const char *name, char *iface, uint32_t 
     if (node == nullptr)
     {
         node = create_node(iface);
+        if(node) {
+            node->initialize_communication();
+        }
+        else {
+            ESP_LOGE(TAG, "Failed to create node for RTU device %s", name);
+            return nullptr;
+        }
     }
     ModbusDevice *device = new ModbusDevice(name, address);
     node->add_device(device);
-    return nullptr;
+    node->start();
+    return device;
 }
 
 void ModbusHub::remove_device(ModbusDevice *device)
 {
-    // for (auto &node : nodes)
-    // {
-    //     node.remove_device(device);
-    // }
+    ESP_LOGI(TAG, "Removing device %s from hub", device->get_name());
+    for (auto &node : nodes)
+    {
+        if(!node->has_device(device))
+        {
+            continue;
+        }
+        ESP_LOGI(TAG, "Removing device %s from node %s", device->get_name(), node->get_iface());
+        node->remove_device(device);
+        // If the node has no devices, remove it
+        if(node->empty())
+        {
+            node->stop();
+            remove_node(node);
+        }
+        return;
+    }
+}
+
+void ModbusHub::remove_node(ModbusNode *node)
+{
+    ESP_LOGI(TAG, "Removing node %s", node->get_iface());
+    // Remove the node from the list
+    nodes.remove(node);
+    // Delete the node
+    delete node;
 }
 
 void *ModbusHub::operator new(size_t size)
@@ -145,6 +190,7 @@ ModbusNode *ModbusHub::get_node(const char *ip, uint16_t port)
             return node; // Return the pointer directly
         }
     }
+    ESP_LOGE(TAG, "No node found for %s", iface);
     return nullptr;
 }
 
