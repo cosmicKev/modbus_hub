@@ -4,6 +4,7 @@
 #include "freertos/semphr.h"
 #include "modbus_data.h"
 #include "modbus_utils.h"
+#include "mutex_utils.h"
 #include "psram_allocator.h"
 #include <esp_modbus_common.h>
 #include <esp_modbus_master.h>
@@ -73,10 +74,12 @@ class ModbusDevice
   public:
     // Constructor and destructor
     ModbusDevice(const char *name, uint8_t address);
-
     ~ModbusDevice();
 
-    // Thread safety
+    // RTU configuration
+    void set_rtu_config(uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits);
+
+    // Thread safety - legacy methods for backward compatibility
     bool lock(uint32_t timeout = 1000);
     bool unlock();
 
@@ -104,8 +107,16 @@ class ModbusDevice
     char name_[100];
     uint8_t modbus_address_;
 
+    // Mutex for thread safety
     SemaphoreHandle_t mutex_;
 
     // We dont know how many frames we will have.
     std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> data;
+
+
+    // RTU configuration
+    uint32_t baudrate_;
+    uart_word_length_t data_bits_;
+    uart_parity_t parity_;
+    uart_stop_bits_t stop_bits_;
 };

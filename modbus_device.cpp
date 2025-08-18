@@ -2,6 +2,7 @@
 // #include "EzModbus.h" // Commented out until EzModbus is properly included
 #include "esp_log.h"
 #include "modbus_data.h"
+#include "mutex_utils.h"
 #include "psram.h"
 #include <cstdint>
 #include <cstring>
@@ -51,6 +52,7 @@ ModbusDevice::~ModbusDevice()
 
     ESP_LOGI(TAG, "%s: ModbusDevice destroyed", name_);
 }
+
 bool ModbusDevice::lock(uint32_t timeout)
 {
     if (mutex_ == nullptr)
@@ -77,7 +79,9 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
                                            uint32_t polling_interval_ms)
 {
     ESP_LOGI(TAG, "Adding read request %s", mb_name);
-    if (!lock())
+    
+    ScopedMutex lock(mutex_);
+    if (!lock.isLocked())
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex", name_);
         return nullptr;
@@ -89,7 +93,7 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
     if (tmp)
     {
         data.push_front(tmp); // Store the pointer, not a copy
-        unlock();
+        ESP_LOGI(TAG, "%s: Successfully added read request %s", name_, mb_name);
         return tmp;
     }
     else
@@ -97,22 +101,27 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
         ESP_LOGE(TAG, "%s: Failed to create ModbusData for %s", name_, mb_name);
     }
 
-    unlock();
     return nullptr; // Return nullptr if creation failed
 }
 
 bool ModbusDevice::add_write_request(uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
                                      uint8_t *registers_map, ModbusPeriodicRead periodic)
 {
+    ScopedMutex lock(mutex_);
+    if (!lock.isLocked())
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for write request", name_);
+        return false;
+    }
 
+    // TODO: Implement write request logic
+    ESP_LOGW(TAG, "%s: Write request not yet implemented", name_);
     return false;
 }
 
 const std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> &ModbusDevice::get_requests_list()
 {
-    ESP_LOGI(TAG, "%s: get_requests_list called, returning list with %zu elements", name_,
-             std::distance(data.begin(), data.end()));
-    return data; // Returns const reference, caller can't modify
+    return data;
 }
 
 const char *ModbusDevice::get_name()
@@ -147,20 +156,42 @@ void ModbusDevice::operator delete[](void *ptr) noexcept
 
 void ModbusDevice::remove_request(ModbusData *dev_data)
 {
-    if (!lock())
+    if (!dev_data) {
+        ESP_LOGE(TAG, "%s: Cannot remove null request", name_);
+        return;
+    }
+    
+    ScopedMutex lock(mutex_);
+    if (!lock.isLocked())
     {
-        ESP_LOGE(TAG, "%s: Failed to lock mutex", name_);
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for request removal", name_);
         return;
     }
 
     ESP_LOGI(TAG, "%s: Removing request %s", name_, dev_data->get_name());
-    if(dev_data && data.remove(dev_data) == 1)
+    if(data.remove(dev_data) == 1)
     {
-        ESP_LOGI(TAG, "%s: Removed request %s", name_, dev_data->get_name());
+        ESP_LOGI(TAG, "%s: Successfully removed request %s", name_, dev_data->get_name());
+        delete dev_data; // Clean up the removed request
     }
     else
     {
-        ESP_LOGE(TAG, "%s: Failed to remove request %s", name_, dev_data->get_name());
+        ESP_LOGE(TAG, "%s: Failed to remove request %s (not found in list)", name_, dev_data->get_name());
     }
-    unlock();
+}
+
+
+/*
+ * @brief Set the RTU configuration for the device.
+ * @param baudrate The baudrate to use
+ * @param data_bits The data bits to use
+ * @param parity The parity to use
+ * @param stop_bits The stop bits to use
+    */
+void ModbusDevice::set_rtu_config(uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits)
+{
+    baudrate_ = baudrate;
+    data_bits_ = data_bits;
+    parity_ = parity;
+    stop_bits_ = stop_bits;
 }
