@@ -92,6 +92,8 @@ class ModbusDevice
     const char *get_name();
     uint8_t get_address() const;
 
+    void remove_request(ModbusData *dev_data);
+
     void *operator new(size_t size);
     void operator delete(void *ptr) noexcept;
     void *operator new[](size_t size);

@@ -21,8 +21,7 @@ const char TAG[] = "modbus_device";
 ModbusDevice::ModbusDevice(const char *name, uint8_t address) : modbus_address_(address), mutex_(nullptr)
 {
     // Copy name safely
-    strncpy(name_, name, sizeof(name_) - 1);
-    name_[sizeof(name_) - 1] = '\0'; // Ensure null termination
+    strncpy(name_, name, strlen(name) + 1);
 
     // Initialize mutex
     mutex_ = xSemaphoreCreateMutex();
@@ -36,13 +35,21 @@ ModbusDevice::ModbusDevice(const char *name, uint8_t address) : modbus_address_(
 
 ModbusDevice::~ModbusDevice()
 {
-    ESP_LOGI(TAG, "%s: ModbusDevice destroyed", name_);
     // Clean up mutex if it exists
     if (mutex_)
     {
         vSemaphoreDelete(mutex_);
         mutex_ = nullptr;
     }
+
+    // Clean up data list
+    for (auto &data : data)
+    {
+        delete data;
+    }
+    data.clear();
+
+    ESP_LOGI(TAG, "%s: ModbusDevice destroyed", name_);
 }
 bool ModbusDevice::lock(uint32_t timeout)
 {
@@ -69,7 +76,7 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
                                            uint8_t mb_function_code, ModbusPeriodicRead periodic,
                                            uint32_t polling_interval_ms)
 {
-    ESP_LOGI(TAG, "%s: Adding read request %s", name_, mb_name);
+    ESP_LOGI(TAG, "Adding read request %s", mb_name);
     if (!lock())
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex", name_);
@@ -82,16 +89,6 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
     if (tmp)
     {
         data.push_front(tmp); // Store the pointer, not a copy
-        ESP_LOGI(TAG, "%s: Read request %s added, new list size: %zu", name_, mb_name,
-                 std::distance(data.begin(), data.end()));
-
-        // Verify the list still has the element after push_front
-        ESP_LOGI(TAG, "%s: After push_front, list size: %zu, first element: %p", name_,
-                 std::distance(data.begin(), data.end()), data.empty() ? nullptr : *data.begin());
-
-        // Check list size right before unlock
-        ESP_LOGI(TAG, "%s: Right before unlock, list size: %zu", name_, std::distance(data.begin(), data.end()));
-
         unlock();
         return tmp;
     }
@@ -146,4 +143,24 @@ void *ModbusDevice::operator new[](size_t size)
 void ModbusDevice::operator delete[](void *ptr) noexcept
 {
     free(ptr);
+}
+
+void ModbusDevice::remove_request(ModbusData *dev_data)
+{
+    if (!lock())
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex", name_);
+        return;
+    }
+
+    ESP_LOGI(TAG, "%s: Removing request %s", name_, dev_data->get_name());
+    if(dev_data && data.remove(dev_data) == 1)
+    {
+        ESP_LOGI(TAG, "%s: Removed request %s", name_, dev_data->get_name());
+    }
+    else
+    {
+        ESP_LOGE(TAG, "%s: Failed to remove request %s", name_, dev_data->get_name());
+    }
+    unlock();
 }
