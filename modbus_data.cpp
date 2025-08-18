@@ -43,7 +43,6 @@ ModbusData::ModbusData(const char *mb_name, uint16_t mb_address, uint16_t mb_siz
 
 ModbusData::~ModbusData()
 {
-    ESP_LOGI(TAG, "%s: ModbusData destroyed", mb_name_);
     if (mutex_)
     {
         vSemaphoreDelete(mutex_);
@@ -55,6 +54,7 @@ ModbusData::~ModbusData()
         free(registers_map_);
         registers_map_ = nullptr;
     }
+    ESP_LOGI(TAG, "%s: ModbusData destroyed", mb_name_);
 }
 
 bool ModbusData::initialize()

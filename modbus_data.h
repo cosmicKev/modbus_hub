@@ -28,42 +28,42 @@ class ModbusData
     // Destructor
     ~ModbusData();
 
-    // // RAII Scoped Lock class
-    // class ScopedLock
-    // {
-    //   private:
-    //     ModbusData *data_;
-    //     bool locked_;
+    // RAII Scoped Lock class
+    class ScopedLock
+    {
+      private:
+        ModbusData *data_;
+        bool locked_;
 
-    //   public:
-    //     ScopedLock(ModbusData *data, uint32_t timeout = 1000) : data_(data), locked_(false)
-    //     {
-    //         locked_ = data_->lock(timeout);
-    //     }
+      public:
+        ScopedLock(ModbusData *data, uint32_t timeout = 1000) : data_(data), locked_(false)
+        {
+            locked_ = data_->lock(timeout);
+        }
 
-    //     ~ScopedLock()
-    //     {
-    //         if (locked_)
-    //         {
-    //             data_->unlock();
-    //         }
-    //     }
+        ~ScopedLock()
+        {
+            if (locked_)
+            {
+                data_->unlock();
+            }
+        }
 
-    //     bool is_locked() const
-    //     {
-    //         return locked_;
-    //     }
+        bool is_locked() const
+        {
+            return locked_;
+        }
 
-    //     // Prevent copying
-    //     ScopedLock(const ScopedLock &) = delete;
-    //     ScopedLock &operator=(const ScopedLock &) = delete;
+        // Prevent copying
+        ScopedLock(const ScopedLock &) = delete;
+        ScopedLock &operator=(const ScopedLock &) = delete;
 
-    //     // Allow moving
-    //     ScopedLock(ScopedLock &&other) noexcept : data_(other.data_), locked_(other.locked_)
-    //     {
-    //         other.locked_ = false;
-    //     }
-    // };
+        // Allow moving
+        ScopedLock(ScopedLock &&other) noexcept : data_(other.data_), locked_(other.locked_)
+        {
+            other.locked_ = false;
+        }
+    };
 
     // Thread-safe access methods
     uint16_t get_address() const;
