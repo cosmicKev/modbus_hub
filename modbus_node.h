@@ -40,14 +40,17 @@ class ModbusNode
     void remove_device(ModbusDevice *device);
     void worker();
     const char *get_iface();
-    void initialize_communication();
 
+    void initialize_communication();
+    bool has_device(ModbusDevice *device);
+    bool empty();
     void *operator new(size_t size);
     void operator delete(void *ptr) noexcept;
     void *operator new[](size_t size);
     void operator delete[](void *ptr) noexcept;
 
   private:
+    void deinitialize_communication();
     // List of devices managed by the node.
     std::forward_list<ModbusDevice *, PsramAllocator<ModbusDevice *>> devices;
     ModbusNodeState state;
@@ -68,7 +71,6 @@ class ModbusNode
     ModbusHAL::TCP *tcp_phy;
     ModbusInterface::TCP *tcp_interface;
     Modbus::Client *client;
-
     ModbusHAL::UART *rtu_phy;
     ModbusInterface::RTU *rtu_interface;
     ModbusNodeInterfaceType interface_type;
