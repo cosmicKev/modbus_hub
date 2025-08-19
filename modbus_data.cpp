@@ -232,14 +232,14 @@ void ModbusData::swap_bytes(void *data_in, void *data_out, size_t size, ModbusBy
     switch (bytes_order)
     {
     case ModbusBytesOrder::AB:
-        data_out = data_in;
+        memcpy(data_out, data_in, size);
         break;
     case ModbusBytesOrder::BA:
         pdata_out[0] = pdata_in[1];
         pdata_out[1] = pdata_in[0];
         break;
     case ModbusBytesOrder::ABCD:
-        data_out = data_in;
+        memcpy(data_out, data_in, size);
         break;
     case ModbusBytesOrder::CDAB:
         pdata_out[0] = pdata_in[2];
@@ -261,14 +261,7 @@ void ModbusData::swap_bytes(void *data_in, void *data_out, size_t size, ModbusBy
         break;
     case ModbusBytesOrder::ABCDEFGH:
         // No swap - direct copy
-        pdata_out[0] = pdata_in[0];
-        pdata_out[1] = pdata_in[1];
-        pdata_out[2] = pdata_in[2];
-        pdata_out[3] = pdata_in[3];
-        pdata_out[4] = pdata_in[4];
-        pdata_out[5] = pdata_in[5];
-        pdata_out[6] = pdata_in[6];
-        pdata_out[7] = pdata_in[7];
+        memcpy(data_out, data_in, size);
         break;
     case ModbusBytesOrder::HGFEDCBA:
         // Complete reverse order
