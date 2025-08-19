@@ -36,15 +36,15 @@ enum class ModbusDataRefresh : uint8_t
     ON_REQUEST = 0x01, // Refreshes descriptor only when asked
 };
 
-enum class ModbusDataStatus : uint8_t
-{
-    NO_STATUS = 0x00,
-    BUSY_ON_REQUEST = 0x01,    // Refreshes descriptor data periodically when the device has bus access
-    SUCCESS_ON_REQUEST = 0x02, // Default state, gets erased when new request is made
-    INVALID_RESPONSE = 0x03,   // Invalid response from the device
-    WRITE_TIMEOUT = 0x04,      // Timeout on write operation
-    IDLE = 0x05,
-};
+// enum class ModbusDataStatus : uint8_t
+// {
+//     NO_STATUS = 0x00,
+//     BUSY_ON_REQUEST = 0x01,    // Refreshes descriptor data periodically when the device has bus access
+//     SUCCESS_ON_REQUEST = 0x02, // Default state, gets erased when new request is made
+//     INVALID_RESPONSE = 0x03,   // Invalid response from the device
+//     WRITE_TIMEOUT = 0x04,      // Timeout on write operation
+//     IDLE = 0x05,
+// };
 
 enum class ModbusStatus : uint8_t
 {
@@ -102,18 +102,19 @@ class ModbusDevice
     void *operator new[](size_t size);
     void operator delete[](void *ptr) noexcept;
 
+    uint64_t get_timestamp() const { return epoch_ms; }
+    void set_timestamp(uint64_t timestamp) { epoch_ms = timestamp; }
   private:
     // Member variables
     char name_[100];
     uint8_t modbus_address_;
+    uint64_t epoch_ms;
 
     // Mutex for thread safety
     SemaphoreHandle_t mutex_;
 
     // We dont know how many frames we will have.
     std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> data;
-
-
     // RTU configuration
     uint32_t baudrate_;
     uart_word_length_t data_bits_;
