@@ -84,7 +84,7 @@ class ModbusDevice
     bool unlock();
 
     // Modbus data management
-    ModbusData *add_read_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
+    ModbusData *add_read_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code=Modbus::READ_HOLDING_REGISTERS,
                                  ModbusPeriodicRead periodic = ModbusPeriodicRead::ON_REQUEST,
                                  uint32_t polling_interval_ms = 5000);
 
