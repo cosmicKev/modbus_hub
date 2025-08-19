@@ -10,7 +10,8 @@
 #include "modbus_task_pool.h"
 #include "modbus_utils.h"
 #include "psram.h"
-
+#include "time_utils.h"
+    
 constexpr char TAG[] = "ModbusNode";
 
 ModbusNode::ModbusNode()
@@ -328,6 +329,11 @@ void ModbusNode::run_worker()
         {
             if (!device)
                 continue;
+            if(!device->lock(1000))
+            {
+                ESP_LOGE(TAG, "%s: Failed to lock device %s", name_, device->get_name());
+                continue;
+            }
             const auto &requests = device->get_requests_list();
             for (auto request : requests)
             {
@@ -341,22 +347,21 @@ void ModbusNode::run_worker()
                     continue;
                 }
 
-                ESP_LOGI(TAG, "%s: Device %s request %s", name_, device->get_name(), request->get_name());
-
-
                 Modbus::Frame frame;
                 frame.type = Modbus::REQUEST;
                 frame.slaveId = device->get_address();
                 frame.fc = static_cast<Modbus::FunctionCode>(request->get_function_code());
                 frame.regAddress = request->get_address();
                 frame.regCount = request->get_size();
-                ESP_LOGI(TAG, "%s: Sending request slaveId =%u %s(%u) - Addr:%u len:%u", name_, frame.slaveId,
-                         request->get_name(), frame.fc, frame.regAddress, frame.regCount);
+                ESP_LOGI(TAG, "%s: Sending request %s(%u)- %s Address:0x%x(%d) Code:0x%x Len:%u", name_, device->get_name(), device->get_address(), request->get_name(), request->get_address(), request->get_address(), frame.fc, frame.regCount);
                 Modbus::Client::Result result = client->sendRequest(frame, frame);
 
                 if (result == Modbus::Client::SUCCESS)
                 {
-                    modbus_print_response(device->get_name(), frame, request->get_size() * 2);
+                    request->set_status(ModbusDataStatus::UPDATED);
+                    request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
+                    request->update_data(frame.data);
+                    // modbus_print_response(device->get_name(), frame, request->get_size() * 2);
                 }
                 else if (result == Modbus::Client::ERR_BUSY)
                 {
@@ -367,12 +372,12 @@ void ModbusNode::run_worker()
                 }
                 else
                 {
-                    ESP_LOGE(TAG, "Modbus exception. Result: %s Frame: %s", Modbus::Client::toString(result),
-                             Modbus::toString(frame.exceptionCode));
+                    ESP_LOGE(TAG, "%s: %s(%u)- %s Exception: %s | Frame: %s", 
+                        name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result), Modbus::toString(frame.exceptionCode));
                 }
-                request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
-                ESP_LOGI(TAG, "%s: Request %s completed", name_, request->get_name());
             }
+            device->unlock();
+            device->set_timestamp(get_time());
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
