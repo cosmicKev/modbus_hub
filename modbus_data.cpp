@@ -1,10 +1,11 @@
 #include "modbus_data.h"
 #include "esp_log.h"
 #include "psram.h"
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
-static const char TAG[] = "ModbusData";
+static constexpr const char *TAG = "ModbusData";
 
 // Factory method implementation
 ModbusData *ModbusData::create(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
@@ -43,6 +44,7 @@ ModbusData::ModbusData(const char *mb_name, uint16_t mb_address, uint16_t mb_siz
 
 ModbusData::~ModbusData()
 {
+    ESP_LOGI(TAG, "%s: ModbusData destroyed", mb_name_);
     if (mutex_)
     {
         vSemaphoreDelete(mutex_);
@@ -54,7 +56,6 @@ ModbusData::~ModbusData()
         free(registers_map_);
         registers_map_ = nullptr;
     }
-    ESP_LOGI(TAG, "%s: ModbusData destroyed", mb_name_);
 }
 
 bool ModbusData::initialize()
@@ -195,3 +196,187 @@ void ModbusData::set_last_read_time_ms(uint32_t last_read_time_ms)
 {
     last_read_time_ms_ = last_read_time_ms;
 }
+
+void ModbusData::update_data(const std::array<uint16_t, Modbus::FRAME_DATASIZE> &data)
+{
+    if (lock())
+    {
+        memcpy(registers_map_, data.data(), mb_size_ * sizeof(uint16_t));
+        unlock();
+    }
+    else
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex", mb_name_);
+    }
+}
+
+void ModbusData::swap_bytes(void *data_in, void *data_out, size_t size, ModbusBytesOrder bytes_order)
+{
+    // Tread all data as unsigned
+    uint8_t *pdata_in = static_cast<uint8_t *>(data_in);
+    uint8_t *pdata_out = static_cast<uint8_t *>(data_out);
+
+    if (data_in == nullptr || data_out == nullptr || size == 0)
+    {
+        ESP_LOGE(TAG, "Invalid data");
+        return;
+    }
+
+    // Double checking sizes from given on array and choosen byte order. 
+    if(size != (uint8_t)((uint8_t)bytes_order >> 4 & 0x0F))
+    {
+        ESP_LOGE(TAG, "Invalid size. %u != %u", (uint8_t)size, (uint8_t)((uint8_t)bytes_order >> 4 & 0x0F));
+        return;
+    }
+
+    switch (bytes_order)
+    {
+    case ModbusBytesOrder::AB:
+        data_out = data_in;
+        break;
+    case ModbusBytesOrder::BA:
+        pdata_out[0] = pdata_in[1];
+        pdata_out[1] = pdata_in[0];
+        break;
+    case ModbusBytesOrder::ABCD:
+        data_out = data_in;
+        break;
+    case ModbusBytesOrder::CDAB:
+        pdata_out[0] = pdata_in[2];
+        pdata_out[1] = pdata_in[3];
+        pdata_out[2] = pdata_in[0];
+        pdata_out[3] = pdata_in[1];
+        break;
+    case ModbusBytesOrder::BADC:
+        pdata_out[0] = pdata_in[3];
+        pdata_out[1] = pdata_in[2];
+        pdata_out[2] = pdata_in[1];
+        pdata_out[3] = pdata_in[0];
+        break;
+    case ModbusBytesOrder::DCBA:
+        pdata_out[0] = pdata_in[3];
+        pdata_out[1] = pdata_in[2];
+        pdata_out[2] = pdata_in[1];
+        pdata_out[3] = pdata_in[0];
+        break;
+    case ModbusBytesOrder::ABCDEFGH:
+        // No swap - direct copy
+        pdata_out[0] = pdata_in[0];
+        pdata_out[1] = pdata_in[1];
+        pdata_out[2] = pdata_in[2];
+        pdata_out[3] = pdata_in[3];
+        pdata_out[4] = pdata_in[4];
+        pdata_out[5] = pdata_in[5];
+        pdata_out[6] = pdata_in[6];
+        pdata_out[7] = pdata_in[7];
+        break;
+    case ModbusBytesOrder::HGFEDCBA:
+        // Complete reverse order
+        pdata_out[0] = pdata_in[7];
+        pdata_out[1] = pdata_in[6];
+        pdata_out[2] = pdata_in[5];
+        pdata_out[3] = pdata_in[4];
+        pdata_out[4] = pdata_in[3];
+        pdata_out[5] = pdata_in[2];
+        pdata_out[6] = pdata_in[1];
+        pdata_out[7] = pdata_in[0];
+        break;
+    case ModbusBytesOrder::GHEFCDAB:
+        // Swap 4-byte groups: GHEF + CDAB
+        pdata_out[0] = pdata_in[6]; // G
+        pdata_out[1] = pdata_in[7]; // H
+        pdata_out[2] = pdata_in[4]; // E
+        pdata_out[3] = pdata_in[5]; // F
+        pdata_out[4] = pdata_in[2]; // C
+        pdata_out[5] = pdata_in[3]; // D
+        pdata_out[6] = pdata_in[0]; // A
+        pdata_out[7] = pdata_in[1]; // B
+        break;
+    case ModbusBytesOrder::BADCFEHG:
+        // Swap 4-byte groups: BADC + FEHG
+        pdata_out[0] = pdata_in[1]; // B
+        pdata_out[1] = pdata_in[0]; // A
+        pdata_out[2] = pdata_in[3]; // D
+        pdata_out[3] = pdata_in[2]; // C
+        pdata_out[4] = pdata_in[5]; // F
+        pdata_out[5] = pdata_in[4]; // E
+        pdata_out[6] = pdata_in[7]; // H
+        pdata_out[7] = pdata_in[6]; // G
+        break;
+    case ModbusBytesOrder::EFGHABCD:
+        // Swap 4-byte groups: EFGH + ABCD
+        pdata_out[0] = pdata_in[4]; // E
+        pdata_out[1] = pdata_in[5]; // F
+        pdata_out[2] = pdata_in[6]; // G
+        pdata_out[3] = pdata_in[7]; // H
+        pdata_out[4] = pdata_in[0]; // A
+        pdata_out[5] = pdata_in[1]; // B
+        pdata_out[6] = pdata_in[2]; // C
+        pdata_out[7] = pdata_in[3]; // D
+        break;
+    case ModbusBytesOrder::CDABEFGH:
+        // Swap 4-byte groups: CDAB + EFGH
+        pdata_out[0] = pdata_in[2]; // C
+        pdata_out[1] = pdata_in[3]; // D
+        pdata_out[2] = pdata_in[0]; // A
+        pdata_out[3] = pdata_in[1]; // B
+        pdata_out[4] = pdata_in[4]; // E
+        pdata_out[5] = pdata_in[5]; // F
+        pdata_out[6] = pdata_in[6]; // G
+        pdata_out[7] = pdata_in[7]; // H
+        break;
+    default:
+        ESP_LOGE(TAG, "Invalid bytes order");
+        break;
+    }
+    return;
+}
+
+uint32_t ModbusData::get_uint32(uint32_t data_in, ModbusBytesOrder bytes_order)
+{
+    uint32_t value = 0;
+    swap_bytes((void*)&data_in, &value, 4, bytes_order);
+    return value;
+}
+
+int32_t ModbusData::get_int32(int32_t data_in, ModbusBytesOrder bytes_order)
+{
+    int32_t value = 0;
+    swap_bytes((void*)&data_in, &value, 4, bytes_order);
+    return value;
+}
+
+uint16_t ModbusData::get_uint16(uint16_t data_in, ModbusBytesOrder bytes_order)
+{
+    uint16_t value = 0;
+    swap_bytes((void*)&data_in, &value, 2, bytes_order);
+    return value;
+}
+
+int16_t ModbusData::get_int16(int16_t data_in, ModbusBytesOrder bytes_order)
+{
+    int16_t value = 0;
+    swap_bytes((void*)&data_in, &value, 2, bytes_order);
+    return value;
+}
+
+
+uint64_t ModbusData::get_uint64(uint64_t data_in, ModbusBytesOrder bytes_order)
+{
+    uint64_t value = 0;
+    swap_bytes((void*)&data_in, &value, 8, bytes_order);
+    return value;
+}
+
+float ModbusData::get_float(float data_in, ModbusBytesOrder bytes_order)
+{
+    float value = 0;
+    swap_bytes((void*)&data_in, &value, 4, bytes_order);
+    return value;
+}
+
+double ModbusData::get_double(double data_in, ModbusBytesOrder bytes_order){
+    double value = 0;
+    swap_bytes((void*)&data_in, &value, 8, bytes_order);
+    return value;
+}   

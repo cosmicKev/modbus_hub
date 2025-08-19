@@ -4,12 +4,37 @@
 #include "freertos/semphr.h"
 #include <cstdint>
 #include <cstring>
+#include "EZModbus.h"
+#include "esp_log.h"
 
-// Forward declaration
-namespace Modbus
+
+enum class ModbusDataStatus
 {
-class Frame;
-}
+    IDLE,
+    TIMEDOUT,
+    ERROR,
+    UPDATED,
+};
+
+// short version from esp-modbus
+enum class ModbusBytesOrder: uint8_t
+{
+  SIZE_16 = 0x20,          /*!< 16 bit size */
+  AB = 0x21,               /*!< big endian */
+  BA = 0x22,               /*!<little endian */
+  SIZE_32 = 0x40,          /*!< 32 bit size */
+  ABCD = 0x41,             /*!< big endian */
+  CDAB = 0x42,             /*!< big endian, reversed register order */
+  BADC = 0x43,             /*!< little endian, reversed register order */
+  DCBA = 0x44,             /*!< little endian */
+  SIZE_64 = 0x80,          /*!< 64 bit size */
+  ABCDEFGH = 0x81,         /*!< ABCDEFGH, big endian */
+  HGFEDCBA = 0x82,         /*!< HGFEDCBA, little endian */
+  GHEFCDAB = 0x83,         /*!< GHEFCDAB, big endian, reversed register order */
+  BADCFEHG = 0x84,         /*!< BADCFEHG, little endian, reversed register order */
+  EFGHABCD = 0x85,         /*!< EFGHABCD, big endian, reversed register order */
+  CDABEFGH = 0x86,         /*!< CDABEFGH, little endian, reversed register order */
+};
 
 enum class ModbusPeriodicRead : uint8_t
 {
@@ -88,6 +113,28 @@ class ModbusData
     uint32_t get_last_read_time_ms() const;
     void set_last_read_time_ms(uint32_t last_read_time_ms);
 
+    bool is_idle() const { return status_ == ModbusDataStatus::IDLE; }
+    bool has_error() const { return status_ == ModbusDataStatus::ERROR; }
+    bool is_timedout() const { return status_ == ModbusDataStatus::TIMEDOUT; }
+    bool is_updated() const { return status_ == ModbusDataStatus::UPDATED; }
+
+    uint8_t *data(bool big_endian = false) const { return registers_map_; }
+    void clear_status() { status_ = ModbusDataStatus::IDLE; }
+    void set_status(ModbusDataStatus status) { status_ = status; }
+
+    void update_data(const std::array<uint16_t, Modbus::FRAME_DATASIZE> &data);
+
+    void get_data(void *data_out, size_t size, ModbusBytesOrder bytes_order);
+    static void swap_bytes(void *data_in, void *data_out, size_t size, ModbusBytesOrder bytes_order);
+    
+    static uint32_t get_uint32(uint32_t data_in, ModbusBytesOrder bytes_order);
+    static int32_t get_int32(int32_t data_in, ModbusBytesOrder bytes_order);
+    static uint16_t get_uint16(uint16_t data_in, ModbusBytesOrder bytes_order);
+    static int16_t get_int16(int16_t data_in, ModbusBytesOrder bytes_order);
+    static uint64_t get_uint64(uint64_t data_in, ModbusBytesOrder bytes_order);
+    static double get_double(double data_in, ModbusBytesOrder bytes_order);
+    static float get_float(float data_in, ModbusBytesOrder bytes_order);
+
   private:
     // Private constructor - use create() instead
     ModbusData(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
@@ -110,4 +157,7 @@ class ModbusData
     ModbusPeriodicRead periodic_;
     uint32_t polling_interval_ms_;
     uint32_t last_read_time_ms_;
+    Modbus::ExceptionCode exception_code_;
+    ModbusDataStatus status_;
+
 };
