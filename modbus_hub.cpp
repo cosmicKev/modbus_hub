@@ -242,3 +242,5 @@ void ModbusHub::add_phy_rtu_iface(char *iface, uart_port_t uart_num, uint8_t tx_
         ESP_LOGE(TAG, "Failed to create PHY RTU interface for %s", iface);
     }
 }
+
+ModbusHub modbus_hub;

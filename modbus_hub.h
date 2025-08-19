@@ -48,3 +48,5 @@ class ModbusHub
     // Available PHY RTU, added at startup by the user.
     std::forward_list<ModbusRtuIface*, PsramAllocator<ModbusRtuIface*>> phy_rtu_ifaces;
 };
+
+extern ModbusHub modbus_hub;
