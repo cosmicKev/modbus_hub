@@ -11,6 +11,7 @@
 #include "modbus_utils.h"
 #include "psram.h"
 #include "time_utils.h"
+#include "network.h"
     
 constexpr char TAG[] = "ModbusNode";
 
@@ -53,7 +54,7 @@ ModbusNode *ModbusNode::create(const char *ip, uint16_t port)
     {
         ESP_LOGI(TAG, "Creating node for TCP interface: %s:%u", ip, port);
         snprintf(node->name_, sizeof(node->name_), "%s:%u", ip, port);
-        node->ip = ip;
+        strncpy(node->ip, ip, sizeof(node->ip));
         node->port = port;
         node->interface_type = ModbusNodeInterfaceType::TCP;
         return node;
@@ -84,6 +85,11 @@ ModbusNode *ModbusNode::create(const char *iface, ModbusHAL::UART::Config uartCf
 ModbusNode::~ModbusNode()
 {
     ESP_LOGI(TAG, "%s: Destroying ModbusNode.", name_);
+    if (!lock(portMAX_DELAY))
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusNode destruction", name_);
+        return;
+    }
 
     if(thread_)
     {
@@ -107,7 +113,6 @@ ModbusNode::~ModbusNode()
 
 void ModbusNode::start()
 {
-    initialize_communication();
     ESP_LOGI(TAG, "%s: Starting ModbusNode.", name_);
     if (running_)
     {
@@ -133,12 +138,6 @@ void ModbusNode::start()
 
 void ModbusNode::deinitialize_communication()
 {
-    ScopedMutex lock(_mutex);
-    if (!lock.isLocked()) {
-        ESP_LOGE(TAG, "%s: Failed to acquire mutex for communication deinitialization", name_);
-        return;
-    }
-    
     if (interface_type == ModbusNodeInterfaceType::TCP)
     {
         // Delete the tasks already
@@ -215,7 +214,7 @@ void ModbusNode::initialize_communication()
             }
             return;
         }
-
+        ESP_LOGI(TAG, "%s: Initializing communication on TCP. %s:%u", name_, ip, port);
         tcp_phy = new (tcp_phy) ModbusHAL::TCP(ip, port);
         tcp_interface = new (tcp_interface) ModbusInterface::TCP(*tcp_phy,Modbus::CLIENT);
 
@@ -228,7 +227,7 @@ void ModbusNode::initialize_communication()
         }
         ez_phy_task_ = ModbusTaskPool::g_taskPool.createTask(tcp_phy->tcpTask, name_, 10*4096, tcp_phy, 5);
 
-        client = new (client) Modbus::Client(*tcp_interface, 10000);
+        client = new (client) Modbus::Client(*tcp_interface, 5000);
         Modbus::Client::Result result = client->begin();
         if (result != Modbus::Client::SUCCESS)
         {
@@ -246,7 +245,7 @@ void ModbusNode::initialize_communication()
     {
 
         ESP_LOGI(TAG, "%s: Initializing communication on RTU", name_);
-        ESP_LOGI(TAG, "%s: UART config: %d, %lu, %lu, %d, %d %d", name_, uartCfg.uartNum, (unsigned long)uartCfg.baud, (unsigned long)uartCfg.config, uartCfg.rxPin, uartCfg.txPin, uartCfg.dePin);
+        ESP_LOGI(TAG, "%s: UART config: UartNum:%d, Baud:%lu, Config:0x%04" PRIx32 ", RxPin:%d, TxPin:%d, DePin:%d", name_, uartCfg.uartNum, (unsigned long)uartCfg.baud, uartCfg.config, uartCfg.rxPin, uartCfg.txPin, uartCfg.dePin);
         
         // Pre-allocate PSRAM memory for RTU objects
         rtu_phy = static_cast<ModbusHAL::UART*>(psram_malloc(sizeof(ModbusHAL::UART)));
@@ -309,9 +308,106 @@ void ModbusNode::initialize_communication()
     }
 }
 
+bool ModbusNode::read_request(ModbusDevice *device, ModbusData *request)
+{
+    Modbus::Frame frame;
+    frame.type = Modbus::REQUEST;
+    frame.slaveId = device->get_address();
+    frame.fc = static_cast<Modbus::FunctionCode>(request->get_function_code());
+    frame.regAddress = request->get_address();
+    frame.regCount = request->get_size();
+    ESP_LOGI(TAG, "%s: Sending request %s(%u)- %s Address:0x%x(%d) Code:0x%x Len:%u", name_, device->get_name(), device->get_address(), request->get_name(), request->get_address(), request->get_address(), frame.fc, frame.regCount);
+    Modbus::Client::Result result = client->sendRequest(frame, frame);
+
+    if (result == Modbus::Client::SUCCESS)
+    {
+        request->set_status(ModbusDataStatus::SUCCESS);
+        request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
+        request->update_data(frame.data);
+        // modbus_print_response(device->get_name(), frame, request->get_size() * 2);
+    }
+    else if (result == Modbus::Client::ERR_BUSY)
+    {
+        ESP_LOGE(TAG, "%s: Request: %s(%u)- %s Modbus exception. Result: %s Frame: %s", name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result),
+                 Modbus::toString(frame.exceptionCode));
+        return false;
+    }
+    else if (result == Modbus::Client::ERR_TIMEOUT)
+    {
+        request->set_status(ModbusDataStatus::TIMEDOUT);
+        ESP_LOGE(TAG, "%s: Request: %s(%u)- %s Modbus exception. Result: %s Frame: %s", name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result),
+                 Modbus::toString(frame.exceptionCode));
+        return false;
+    }
+    else
+    {
+        request->set_status(ModbusDataStatus::ERROR);
+        ESP_LOGE(TAG, "%s: %s(%u)- %s Exception: %s | Frame: %s", 
+            name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result), Modbus::toString(frame.exceptionCode));
+        return false;
+    }
+    return true;
+}
+
+bool ModbusNode::write_request(ModbusDevice *device, ModbusData *request)
+{
+
+    Modbus::Frame frame;
+    frame.type = Modbus::REQUEST;
+    frame.slaveId = device->get_address();
+    frame.fc = static_cast<Modbus::FunctionCode>(request->get_function_code());
+    frame.regAddress = request->get_address();
+    frame.regCount = request->get_size();
+
+    memcpy(frame.data.data(), request->data(), request->get_size() * 2);
+    ESP_LOGI(TAG, "%s: Sending write request %s(%u)- %s Address:0x%x(%d) Code:0x%x Len:%u", name_, device->get_name(), device->get_address(), request->get_name(), request->get_address(), request->get_address(), frame.fc, frame.regCount);
+    Modbus::Client::Result result = client->sendRequest(frame, frame);
+
+    if (result == Modbus::Client::SUCCESS)
+    {
+        request->set_status(ModbusDataStatus::SUCCESS);
+        request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
+        request->update_data(frame.data);
+    }
+    else if (result == Modbus::Client::ERR_BUSY)
+    {
+        ESP_LOGE(TAG, "Modbus exception. Result: %s Frame: %s", Modbus::Client::toString(result),
+                 Modbus::toString(frame.exceptionCode));
+        // Should not be busy
+        ESP_LOGE(TAG, "Modbus busy. Aborting transaction.");
+        return false;
+    }
+    else if (result == Modbus::Client::ERR_TIMEOUT)
+    {
+        request->set_status(ModbusDataStatus::TIMEDOUT);
+        ESP_LOGE(TAG, "Modbus exception. Result: %s Frame: %s", Modbus::Client::toString(result),
+                 Modbus::toString(frame.exceptionCode));
+        // Should not be busy
+        ESP_LOGE(TAG, "Modbus busy. Aborting transaction.");
+        return false;
+    }
+    else
+    {
+        request->set_status(ModbusDataStatus::ERROR);
+        ESP_LOGE(TAG, "%s: %s(%u)- %s Exception: %s | Frame: %s", 
+            name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result), Modbus::toString(frame.exceptionCode));
+        return false;
+    }
+    return true;
+}
+
+
+
 // Worker thread main function
 void ModbusNode::run_worker()
 {
+    //Wait for network to be ready
+    while (strlen(get_network_ip_address()) < 1)
+    {
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+    // Initialize communication
+    initialize_communication();
     ESP_LOGI(TAG, "%s: Worker started.", name_);
     vTaskDelay(pdMS_TO_TICKS(2000));
     
@@ -334,6 +430,8 @@ void ModbusNode::run_worker()
                 ESP_LOGE(TAG, "%s: Failed to lock device %s", name_, device->get_name());
                 continue;
             }
+
+            bool updated_once = false;
             const auto &requests = device->get_requests_list();
             for (auto request : requests)
             {
@@ -341,43 +439,35 @@ void ModbusNode::run_worker()
                     ESP_LOGE(TAG, "%s: Request is null", name_);
                     continue;
                 }
-                if (pdTICKS_TO_MS(xTaskGetTickCount()) <=
-                    request->get_last_read_time_ms() + request->get_polling_interval())
+
+                // Check if its time to read or if its a single request.
+                if ((pdTICKS_TO_MS(xTaskGetTickCount()) <= request->get_last_read_time_ms() + request->get_polling_interval()) &&
+                     request->get_status() != ModbusDataStatus::REQUESTED)
                 {
                     continue;
                 }
 
-                Modbus::Frame frame;
-                frame.type = Modbus::REQUEST;
-                frame.slaveId = device->get_address();
-                frame.fc = static_cast<Modbus::FunctionCode>(request->get_function_code());
-                frame.regAddress = request->get_address();
-                frame.regCount = request->get_size();
-                ESP_LOGI(TAG, "%s: Sending request %s(%u)- %s Address:0x%x(%d) Code:0x%x Len:%u", name_, device->get_name(), device->get_address(), request->get_name(), request->get_address(), request->get_address(), frame.fc, frame.regCount);
-                Modbus::Client::Result result = client->sendRequest(frame, frame);
+                if(request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS && read_request(device, request))
+                {
+                    updated_once = true;
+                }
+                else if((request->get_function_code() == Modbus::FunctionCode::WRITE_MULTIPLE_COILS  || (request->get_function_code() == Modbus::FunctionCode::WRITE_MULTIPLE_REGISTERS)) && write_request(device, request))
+                {
+                    updated_once = true;
+                    ESP_LOGE(TAG, "%s: Failed to send write request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
+                    continue;
+                }
+ 
 
-                if (result == Modbus::Client::SUCCESS)
-                {
-                    request->set_status(ModbusDataStatus::UPDATED);
-                    request->set_last_read_time_ms(pdTICKS_TO_MS(xTaskGetTickCount()));
-                    request->update_data(frame.data);
-                    // modbus_print_response(device->get_name(), frame, request->get_size() * 2);
-                }
-                else if (result == Modbus::Client::ERR_BUSY)
-                {
-                    ESP_LOGE(TAG, "Modbus exception. Result: %s Frame: %s", Modbus::Client::toString(result),
-                             Modbus::toString(frame.exceptionCode));
-                    // Should not be busy
-                    ESP_LOGE(TAG, "Modbus busy. Aborting transaction.");
-                }
-                else
-                {
-                    ESP_LOGE(TAG, "%s: %s(%u)- %s Exception: %s | Frame: %s", 
-                        name_, device->get_name(), device->get_address(), request->get_name(), Modbus::Client::toString(result), Modbus::toString(frame.exceptionCode));
-                }
+                // Required before next query.
+                vTaskDelay(pdMS_TO_TICKS(device->get_wait_after_query()));
+            }
+            // Only update time if we sucessefully had at least one good communication.
+            if(updated_once)
+            {
+                device->set_timestamp(get_time());
             }
             device->unlock();
-            device->set_timestamp(get_time());
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }
@@ -415,7 +505,7 @@ void ModbusNode::remove_device(ModbusDevice *device)
     
     if (device)
     {
-        ESP_LOGI(TAG, "%s: Device %s removed.", name_, device->get_name());
+        ESP_LOGI(TAG, "%s: Removing device %s.", name_, device->get_name());
         // Destruct 
         delete device;
         // Removes the pointer
@@ -473,4 +563,19 @@ bool ModbusNode::empty()
     }
     
     return devices.empty();
+}
+
+bool ModbusNode::lock(uint32_t timeout)
+{
+    if (!_mutex)
+    {
+        ESP_LOGE(TAG, "%s: Mutex is not initialized", name_);
+        return false;
+    }
+    return xSemaphoreTake(_mutex, timeout) == pdTRUE;
+}
+
+bool ModbusNode::unlock()
+{
+    return xSemaphoreGive(_mutex) == pdTRUE;
 }

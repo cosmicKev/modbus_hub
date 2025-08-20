@@ -47,9 +47,20 @@ class ModbusNode
     void start();
     void stop();
 
+    bool read_request(ModbusDevice *device, ModbusData *request);
+    bool write_request(ModbusDevice *device, ModbusData *request);
+
     const char *get_iface();
     bool has_device(ModbusDevice *device);
     bool empty();
+
+
+    // Handles mutex
+    bool lock(uint32_t timeout = portMAX_DELAY);
+    bool unlock();
+
+
+    xEventGroupHandle_t notification_event_group;
 
     // Handles memory allocation
     void *operator new(size_t size);
@@ -73,7 +84,7 @@ class ModbusNode
     void run_worker();
     static void thread_wrapper(void *arg);
 
-    const char *ip;
+    char ip[16];
     uint16_t port;
 
     // EzModbus Related we only support either RTU or TCP per Node.
