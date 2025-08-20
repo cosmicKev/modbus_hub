@@ -88,8 +88,7 @@ class ModbusDevice
                                  ModbusPeriodicRead periodic = ModbusPeriodicRead::ON_REQUEST,
                                  uint32_t polling_interval_ms = 5000);
 
-    bool add_write_request(uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code, uint8_t *registers_map,
-                           ModbusPeriodicRead periodic = ModbusPeriodicRead::ON_REQUEST);
+    ModbusData *add_write_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code);
 
     const std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> &get_requests_list();
     const char *get_name();
@@ -104,6 +103,10 @@ class ModbusDevice
 
     uint64_t get_timestamp() const { return epoch_ms; }
     void set_timestamp(uint64_t timestamp) { epoch_ms = timestamp; }
+
+    void set_wait_after_query(uint32_t wait_after_query_ms);
+    uint32_t get_wait_after_query() const { return wait_after_query_ms_; }
+
   private:
     // Member variables
     char name_[100];
@@ -120,4 +123,7 @@ class ModbusDevice
     uart_word_length_t data_bits_;
     uart_parity_t parity_;
     uart_stop_bits_t stop_bits_;
+
+    // Wait after query
+    uint32_t wait_after_query_ms_ = 0;
 };

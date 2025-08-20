@@ -12,7 +12,7 @@
 #define MODBUS_DEVICE_WAIT_MUTEX_LOCK_MS 1000
 #define MODBUS_DEVICE_DEFAULT_POLLING_INTERVAL_MS 5000
 #define MODBUS_DEVICE_DEFAULT_TIMEOUT_WAIT_TIME_MS 2 * MODBUS_DEVICE_DEFAULT_POLLING_INTERVAL_MS
-
+#define MODBUS_DEVICE_MAX_DELAY_MS 30000
 const char TAG[] = "modbus_device";
 
 // ============================================================================
@@ -30,12 +30,23 @@ ModbusDevice::ModbusDevice(const char *name, uint8_t address) : modbus_address_(
     {
         ESP_LOGE(TAG, "Failed to create mutex for ModbusDevice %s", name);
     }
-
-    ESP_LOGI(TAG, "%s: ModbusDevice created, initial list size: %zu", name_, std::distance(data.begin(), data.end()));
 }
 
 ModbusDevice::~ModbusDevice()
 {
+
+    if (!lock(portMAX_DELAY))
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusDevice destruction", name_);
+        return;
+    }
+    // Clean up data list
+    for (auto &request : data)
+    { 
+        delete request;
+    }
+
+    data.clear();
     // Clean up mutex if it exists
     if (mutex_)
     {
@@ -43,12 +54,7 @@ ModbusDevice::~ModbusDevice()
         mutex_ = nullptr;
     }
 
-    // Clean up data list
-    for (auto &data : data)
-    {
-        delete data;
-    }
-    data.clear();
+
 
     ESP_LOGI(TAG, "%s: ModbusDevice destroyed", name_);
 }
@@ -77,17 +83,14 @@ bool ModbusDevice::unlock()
 ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size,
                                            uint8_t mb_function_code, ModbusPeriodicRead periodic,
                                            uint32_t polling_interval_ms)
-{
-    ESP_LOGI(TAG, "Adding read request %s", mb_name);
-    
-    ScopedMutex lock(mutex_);
+{    
+    ScopedMutex lock(mutex_, MODBUS_DEVICE_MAX_DELAY_MS);
     if (!lock.isLocked())
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex", name_);
         return nullptr;
     }
 
-    ESP_LOGI(TAG, "%s: Before adding, list size: %zu", name_, std::distance(data.begin(), data.end()));
 
     ModbusData *tmp = ModbusData::create(mb_name, mb_address, mb_size, mb_function_code, periodic, polling_interval_ms);
     if (tmp)
@@ -104,19 +107,27 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
     return nullptr; // Return nullptr if creation failed
 }
 
-bool ModbusDevice::add_write_request(uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
-                                     uint8_t *registers_map, ModbusPeriodicRead periodic)
+ModbusData *ModbusDevice::add_write_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code)
 {
-    ScopedMutex lock(mutex_);
+    // Cant fail 
+    ScopedMutex lock(mutex_, MODBUS_DEVICE_MAX_DELAY_MS);
     if (!lock.isLocked())
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex for write request", name_);
-        return false;
+        return nullptr;
     }
-
-    // TODO: Implement write request logic
-    ESP_LOGW(TAG, "%s: Write request not yet implemented", name_);
-    return false;
+    ModbusData *tmp = ModbusData::create(mb_name, mb_address, mb_size, mb_function_code, ModbusPeriodicRead::ON_REQUEST, 0);
+    if (tmp)
+    {
+        data.push_front(tmp); // Store the pointer, not a copy
+        ESP_LOGI(TAG, "%s: Successfully added write request %s", name_, mb_name);
+        return tmp;
+    }
+    else
+    {
+        ESP_LOGE(TAG, "%s: Failed to create ModbusData for %s", name_, mb_name);
+    }
+    return nullptr;
 }
 
 const std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> &ModbusDevice::get_requests_list()
@@ -161,7 +172,7 @@ void ModbusDevice::remove_request(ModbusData *dev_data)
         return;
     }
     
-    ScopedMutex lock(mutex_);
+    ScopedMutex lock(mutex_, portMAX_DELAY);
     if (!lock.isLocked())
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex for request removal", name_);
@@ -176,7 +187,7 @@ void ModbusDevice::remove_request(ModbusData *dev_data)
     }
     else
     {
-        ESP_LOGE(TAG, "%s: Failed to remove request %s (not found in list)", name_, dev_data->get_name());
+        ESP_LOGW(TAG, "%s: Failed to remove request %s (not found in list)", name_, dev_data->get_name());
     }
 }
 
@@ -194,4 +205,15 @@ void ModbusDevice::set_rtu_config(uint32_t baudrate, uart_word_length_t data_bit
     data_bits_ = data_bits;
     parity_ = parity;
     stop_bits_ = stop_bits;
+}
+
+void ModbusDevice::set_wait_after_query(uint32_t wait_after_query_ms)
+{
+    ScopedMutex lock(mutex_, portMAX_DELAY);
+    if (!lock.isLocked())
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for wait after query. %s", name_, __func__);
+        return;
+    }
+    wait_after_query_ms_ = wait_after_query_ms;
 }
