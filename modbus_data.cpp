@@ -44,17 +44,23 @@ ModbusData::ModbusData(const char *mb_name, uint16_t mb_address, uint16_t mb_siz
 
 ModbusData::~ModbusData()
 {
-    ESP_LOGI(TAG, "%s: ModbusData destroyed", mb_name_);
-    if (mutex_)
+    if (!lock(portMAX_DELAY))
     {
-        vSemaphoreDelete(mutex_);
-        mutex_ = nullptr;
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusData destruction", mb_name_);
+        return;
     }
 
+    // Clean up registers map
     if (registers_map_)
     {
         free(registers_map_);
         registers_map_ = nullptr;
+    }
+
+    if (mutex_)
+    {
+        vSemaphoreDelete(mutex_);
+        mutex_ = nullptr;
     }
 }
 
@@ -372,4 +378,13 @@ double ModbusData::get_double(double data_in, ModbusBytesOrder bytes_order){
     double value = 0;
     swap_bytes((void*)&data_in, &value, 8, bytes_order);
     return value;
-}   
+}
+
+void ModbusData::clear_data()
+{
+    if (lock())
+    {
+        memset(registers_map_, 0, mb_size_ * sizeof(uint16_t));
+        unlock();
+    }
+}

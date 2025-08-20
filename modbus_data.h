@@ -11,9 +11,10 @@
 enum class ModbusDataStatus
 {
     IDLE,
+    REQUESTED,
     TIMEDOUT,
     ERROR,
-    UPDATED,
+    SUCCESS,
 };
 
 // short version from esp-modbus
@@ -98,6 +99,7 @@ class ModbusData
     ModbusPeriodicRead get_periodic() const;
     uint32_t get_polling_interval() const;
     const char *get_name() const;
+    void clear_data();
     // Check if object is valid and ready to use
     bool is_valid() const;
 
@@ -114,12 +116,13 @@ class ModbusData
     void set_last_read_time_ms(uint32_t last_read_time_ms);
 
     bool is_idle() const { return status_ == ModbusDataStatus::IDLE; }
-    bool has_error() const { return status_ == ModbusDataStatus::ERROR; }
-    bool is_timedout() const { return status_ == ModbusDataStatus::TIMEDOUT; }
-    bool is_updated() const { return status_ == ModbusDataStatus::UPDATED; }
+    bool error() const { return status_ == ModbusDataStatus::ERROR; }
+    bool timeout() const { return status_ == ModbusDataStatus::TIMEDOUT; }
+    bool success() const { return status_ == ModbusDataStatus::SUCCESS; }
 
-    uint8_t *data(bool big_endian = false) const { return registers_map_; }
+    uint8_t *data() const { return registers_map_; }
     void clear_status() { status_ = ModbusDataStatus::IDLE; }
+    void request_data() { status_ = ModbusDataStatus::REQUESTED; }
     void set_status(ModbusDataStatus status) { status_ = status; }
 
     void update_data(const std::array<uint16_t, Modbus::FRAME_DATASIZE> &data);
@@ -134,6 +137,10 @@ class ModbusData
     static uint64_t get_uint64(uint64_t data_in, ModbusBytesOrder bytes_order);
     static double get_double(double data_in, ModbusBytesOrder bytes_order);
     static float get_float(float data_in, ModbusBytesOrder bytes_order);
+
+    void set_address(uint16_t address) { mb_address_ = address; }
+    void set_size(uint16_t size) { mb_size_ = size; }
+    ModbusDataStatus get_status() const { return status_; }
 
   private:
     // Private constructor - use create() instead
@@ -152,7 +159,6 @@ class ModbusData
     uint16_t mb_size_;
     uint8_t mb_function_code_;
     uint8_t *registers_map_;
-    // Modbus::Frame frame_; // TODO: Uncomment when EzModbus is included
     SemaphoreHandle_t mutex_;
     ModbusPeriodicRead periodic_;
     uint32_t polling_interval_ms_;
