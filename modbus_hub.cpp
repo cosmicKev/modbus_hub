@@ -204,9 +204,17 @@ void ModbusHub::remove_device(ModbusDevice *device)
         if (node && node->has_device(device))
         {
             node->remove_device(device);
+
+            // If the node is empty, stop it.
+            if (node->empty())
+            {
+                delete node;
+            }
+
             break;
         }
     }
+
 }
 
 void *ModbusHub::operator new(size_t size)
