@@ -137,6 +137,7 @@ class ModbusData
     static uint64_t get_uint64(uint64_t data_in, ModbusBytesOrder bytes_order);
     static double get_double(double data_in, ModbusBytesOrder bytes_order);
     static float get_float(float data_in, ModbusBytesOrder bytes_order);
+    static void get_string(char *data_in, size_t size, ModbusBytesOrder bytes_order);
 
     void set_address(uint16_t address) { mb_address_ = address; }
     void set_size(uint16_t size) { mb_size_ = size; }

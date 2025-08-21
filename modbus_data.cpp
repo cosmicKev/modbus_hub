@@ -331,6 +331,32 @@ void ModbusData::swap_bytes(void *data_in, void *data_out, size_t size, ModbusBy
     return;
 }
 
+void ModbusData::get_string(char *data_in, size_t size, ModbusBytesOrder bytes_order)
+{
+    if(size == 0)
+    {
+        return;
+    }
+    if(bytes_order == ModbusBytesOrder::AB)
+    {
+        return;
+    }
+    else if(bytes_order == ModbusBytesOrder::BA)
+    {
+        char tmp;
+        for(int i = 1; i < size; i+=2)
+        {
+            tmp = data_in[i];
+            data_in[i] = data_in[i-1];
+            data_in[i-1] = tmp;
+        }
+        return;
+    }
+    else {
+        ESP_LOGE(TAG, "Invalid bytes order for string. Choose AB or BA");
+    }
+}
+
 uint32_t ModbusData::get_uint32(uint32_t data_in, ModbusBytesOrder bytes_order)
 {
     uint32_t value = 0;
