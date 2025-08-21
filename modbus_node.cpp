@@ -22,8 +22,9 @@ ModbusNode::ModbusNode()
     if (!_mutex) {
         ESP_LOGE(TAG, "Failed to create mutex for ModbusNode");
     }
-    
+
     running_ = false;
+    suspended_ = false;  // Initialize suspension state
     tcp_phy = nullptr;
     tcp_interface = nullptr;
     client = nullptr;
@@ -84,17 +85,24 @@ ModbusNode *ModbusNode::create(const char *iface, ModbusHAL::UART::Config uartCf
 
 ModbusNode::~ModbusNode()
 {
-    ESP_LOGI(TAG, "%s: Destroying ModbusNode.", name_);
     if (!lock(portMAX_DELAY))
     {
         ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusNode destruction", name_);
         return;
     }
+    stop();
+    // Give thread some time to stop.
+    vTaskDelay(pdMS_TO_TICKS(100));
 
     if(thread_)
     {
         ModbusTaskPool::g_taskPool.deleteTask(thread_);
     }
+
+    // Deinitialize communication
+    deinitialize_communication();
+    // Give thread some time to stop.
+    vTaskDelay(pdMS_TO_TICKS(100));
     
     // Clean up all devices first
     for (auto device : devices) {
@@ -104,11 +112,14 @@ ModbusNode::~ModbusNode()
     }
     devices.clear();
     
-    deinitialize_communication();
     
     if (_mutex) {
         vSemaphoreDelete(_mutex);
     }
+
+    ESP_LOGI(TAG, "%s: Destroying ModbusNode.", name_);
+
+    
 }
 
 void ModbusNode::start()
@@ -136,21 +147,70 @@ void ModbusNode::start()
     }
 }
 
+void ModbusNode::stop()
+{
+    ESP_LOGI(TAG, "%s: Stopping ModbusNode.", name_);
+    if (running_)
+    {
+        running_ = false;
+        thread_ = nullptr;
+        state = ModbusNodeState::IDLE;
+        ESP_LOGI(TAG, "%s: Stopped.", name_);
+    }
+
+}
+
+void ModbusNode::suspend()
+{
+    ESP_LOGI(TAG, "%s: Suspending ModbusNode.", name_);
+    
+    if (!running_) {
+        ESP_LOGW(TAG, "%s: Cannot suspend - not running", name_);
+        return;
+    }
+    
+    if (suspended_) {
+        ESP_LOGW(TAG, "%s: Already suspended", name_);
+        return;
+    }
+    
+    suspended_ = true;
+    state = ModbusNodeState::SUSPENDED;
+    ESP_LOGI(TAG, "%s: ModbusNode suspended.", name_);
+}
+
+void ModbusNode::resume()
+{
+    ESP_LOGI(TAG, "%s: Resuming ModbusNode.", name_);
+    
+    if (!suspended_) {
+        ESP_LOGW(TAG, "%s: Not suspended", name_);
+        return;
+    }
+    
+    suspended_ = false;
+    state = ModbusNodeState::RUNNING;
+    
+    ESP_LOGI(TAG, "%s: ModbusNode resumed.", name_);
+}
+
 void ModbusNode::deinitialize_communication()
 {
     if (interface_type == ModbusNodeInterfaceType::TCP)
     {
-        // Delete the tasks already
         ModbusTaskPool::g_taskPool.deleteTask(ez_phy_task_);
         ModbusTaskPool::g_taskPool.deleteTask(ez_interface_task_);
+        delete tcp_interface;
+        tcp_interface = nullptr;
         // Kill all rest.
         tcp_phy->stop();
         delete tcp_phy;
         tcp_phy = nullptr;
-        delete tcp_interface;
-        tcp_interface = nullptr;
         delete client;
         client = nullptr;
+        vTaskDelay(pdMS_TO_TICKS(100));
+        // Delete the tasks already
+
 
     }
     else if (interface_type == ModbusNodeInterfaceType::RTU)
@@ -352,6 +412,12 @@ bool ModbusNode::read_request(ModbusDevice *device, ModbusData *request)
 bool ModbusNode::write_request(ModbusDevice *device, ModbusData *request)
 {
 
+    // We can only make write requests once.
+    if(request->get_status()!=ModbusDataStatus::REQUESTED)
+    {
+        return false;
+    }
+
     Modbus::Frame frame;
     frame.type = Modbus::REQUEST;
     frame.slaveId = device->get_address();
@@ -413,14 +479,23 @@ void ModbusNode::run_worker()
     
     while (running_)
     {
-        // Check if client is available
-        if (!client)
-        {
-            ESP_LOGE(TAG, "%s: Client not initialized", name_);
-            vTaskDelay(pdMS_TO_TICKS(1000));
-            continue;
+        // Check for suspension at the beginning of the loop
+        if (suspended_) {
+            ESP_LOGI(TAG, "%s: Task suspended, waiting for resume...", name_);
+            
+            // Wait in a tight loop until resumed or stopped
+            while (suspended_ && running_) {
+                vTaskDelay(pdMS_TO_TICKS(100));  // Small delay to prevent busy waiting
+            }
+            
+            if (!running_) {
+                ESP_LOGI(TAG, "%s: Task stopped while suspended", name_);
+                break;
+            }
+            
+            ESP_LOGI(TAG, "%s: Task resumed, continuing...", name_);
         }
-        
+
         for (auto device : devices)
         {
             if (!device)
@@ -435,41 +510,60 @@ void ModbusNode::run_worker()
             const auto &requests = device->get_requests_list();
             for (auto request : requests)
             {
-                if(!request){
-                    ESP_LOGE(TAG, "%s: Request is null", name_);
-                    continue;
-                }
-
-                // Check if its time to read or if its a single request.
-                if ((pdTICKS_TO_MS(xTaskGetTickCount()) <= request->get_last_read_time_ms() + request->get_polling_interval()) &&
-                     request->get_status() != ModbusDataStatus::REQUESTED)
                 {
-                    continue;
-                }
+                    ModbusData::ScopedLock lock(request, 100);
+                    if (!lock.is_locked())
+                    {
+                        ESP_LOGE(TAG, "%s: Failed to lock request %s", name_, request->get_name());
+                        continue;
+                    }
+                    if(suspended_ || !running_)
+                    {
+                        break;
+                    }
 
-                if(request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS && read_request(device, request))
-                {
-                    updated_once = true;
-                }
-                else if((request->get_function_code() == Modbus::FunctionCode::WRITE_MULTIPLE_COILS  || (request->get_function_code() == Modbus::FunctionCode::WRITE_MULTIPLE_REGISTERS)) && write_request(device, request))
-                {
-                    updated_once = true;
-                    ESP_LOGE(TAG, "%s: Failed to send write request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
-                    continue;
-                }
- 
+                    if(!request){
+                        ESP_LOGE(TAG, "%s: Request is null", name_);
+                        continue;
+                    }
 
-                // Required before next query.
-                vTaskDelay(pdMS_TO_TICKS(device->get_wait_after_query()));
+                    // Check if its time to read or if its a single request.
+                    if ((pdTICKS_TO_MS(xTaskGetTickCount()) <= request->get_last_read_time_ms() + request->get_polling_interval()) &&
+                        request->get_status() != ModbusDataStatus::REQUESTED)
+                    {
+                        continue;
+                    }
+
+                    if(request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS && read_request(device, request))
+                    {
+                        ESP_LOGD(TAG, "%s: Success Read request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
+                        updated_once = true;
+                    }
+                    else if((request->get_function_code() == Modbus::FunctionCode::WRITE_REGISTER  || (request->get_function_code() == Modbus::FunctionCode::WRITE_MULTIPLE_REGISTERS)) && write_request(device, request))
+                    {
+                        updated_once = true;
+                        ESP_LOGD(TAG, "%s: Success write request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
+                        continue;
+                    }
+                    // Required before next query.
+                    vTaskDelay(pdMS_TO_TICKS(device->get_wait_after_query()));
+                }
             }
+
             // Only update time if we sucessefully had at least one good communication.
             if(updated_once)
             {
                 device->set_timestamp(get_time());
             }
             device->unlock();
+
+            // Fast out of loop if suspended.
+            if(suspended_ || !running_)
+            {
+                break;
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 
     ESP_LOGI(TAG, "%s: Worker stopped.", name_);
@@ -484,13 +578,11 @@ void ModbusNode::add_device(ModbusDevice *device)
         ESP_LOGE(TAG, "%s: Failed to acquire mutex for device addition", name_);
         return;
     }
-    
     if (device)
     {
         devices.push_front(device); // Store the pointer, not a copy
         ModbusDevice *tmp = devices.front();
         ESP_LOGI(TAG, "%s: Device %s added.", name_, tmp->get_name());
-
     }
 }
 
@@ -502,7 +594,7 @@ void ModbusNode::remove_device(ModbusDevice *device)
         ESP_LOGE(TAG, "%s: Failed to acquire mutex for device removal", name_);
         return;
     }
-    
+
     if (device)
     {
         ESP_LOGI(TAG, "%s: Removing device %s.", name_, device->get_name());

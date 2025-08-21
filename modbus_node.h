@@ -5,6 +5,7 @@
 #include "EZModbus.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/event_groups.h"
 #include "modbus_device.h"
 #include "mutex_utils.h"
 #include "psram.h"
@@ -19,6 +20,7 @@ enum class ModbusNodeState
     CONNECTING,
     CONNECTED,
     RUNNING,
+    SUSPENDED,  // Add suspended state
     DISCONNECTED,
 };
 
@@ -47,6 +49,11 @@ class ModbusNode
     void start();
     void stop();
 
+    // Add suspend/resume methods
+    void suspend();
+    void resume();
+    bool is_suspended() const { return suspended_; }
+
     bool read_request(ModbusDevice *device, ModbusData *request);
     bool write_request(ModbusDevice *device, ModbusData *request);
 
@@ -60,7 +67,7 @@ class ModbusNode
     bool unlock();
 
 
-    xEventGroupHandle_t notification_event_group;
+    EventGroupHandle_t notification_event_group;
 
     // Handles memory allocation
     void *operator new(size_t size);
@@ -96,6 +103,9 @@ class ModbusNode
     
     // Mutex for thread safety
     mutable SemaphoreHandle_t _mutex;
+
+    // Add suspension state
+    bool suspended_;
 
     // RTU related
     ModbusHAL::UART::Config uartCfg;
