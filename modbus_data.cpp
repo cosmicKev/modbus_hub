@@ -11,7 +11,6 @@ static constexpr const char *TAG = "ModbusData";
 ModbusData *ModbusData::create(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code,
                                ModbusPeriodicRead periodic, uint32_t polling_interval_ms)
 {
-    // Create the object
     ModbusData *data = new ModbusData(mb_name, mb_address, mb_size, mb_function_code, periodic, polling_interval_ms);
     if (!data)
     {
@@ -25,6 +24,11 @@ ModbusData *ModbusData::create(const char *mb_name, uint16_t mb_address, uint16_
         ESP_LOGE(TAG, "%s: Failed to initialize ModbusData", mb_name);
         delete data;
         return nullptr; // Initialization failed
+    }
+
+    if (periodic == ModbusPeriodicRead::ON_REQUEST)
+    {
+        data->request_data();
     }
 
     return data; // Success
@@ -203,17 +207,10 @@ void ModbusData::set_last_read_time_ms(uint32_t last_read_time_ms)
     last_read_time_ms_ = last_read_time_ms;
 }
 
+// Non Thread-safe
 void ModbusData::update_data(const std::array<uint16_t, Modbus::FRAME_DATASIZE> &data)
 {
-    if (lock())
-    {
-        memcpy(registers_map_, data.data(), mb_size_ * sizeof(uint16_t));
-        unlock();
-    }
-    else
-    {
-        ESP_LOGE(TAG, "%s: Failed to lock mutex", mb_name_);
-    }
+    memcpy(registers_map_, data.data(), mb_size_ * sizeof(uint16_t));
 }
 
 void ModbusData::swap_bytes(void *data_in, void *data_out, size_t size, ModbusBytesOrder bytes_order)
@@ -413,4 +410,10 @@ void ModbusData::clear_data()
         memset(registers_map_, 0, mb_size_ * sizeof(uint16_t));
         unlock();
     }
+}
+
+void ModbusData::request_data()
+{
+    status_ = ModbusDataStatus::REQUESTED;
+    last_read_time_ms_ = 0;
 }
