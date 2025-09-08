@@ -122,7 +122,7 @@ class ModbusData
 
     uint8_t *data() const { return registers_map_; }
     void clear_status() { status_ = ModbusDataStatus::IDLE; }
-    void request_data() { status_ = ModbusDataStatus::REQUESTED; }
+    void request_data();
     void set_status(ModbusDataStatus status) { status_ = status; }
 
     void update_data(const std::array<uint16_t, Modbus::FRAME_DATASIZE> &data);
