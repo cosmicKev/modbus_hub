@@ -26,11 +26,12 @@ ModbusData *ModbusData::create(const char *mb_name, uint16_t mb_address, uint16_
         return nullptr; // Initialization failed
     }
 
-    if (periodic == ModbusPeriodicRead::ON_REQUEST)
+
+    // We dont request data imediatly for write requests
+    if (periodic == ModbusPeriodicRead::ON_REQUEST && !(mb_function_code == Modbus::WRITE_REGISTER || mb_function_code == Modbus::WRITE_MULTIPLE_REGISTERS || mb_function_code == Modbus::WRITE_COIL || mb_function_code == Modbus::WRITE_MULTIPLE_COILS))
     {
         data->request_data();
     }
-
     return data; // Success
 }
 
@@ -165,6 +166,11 @@ uint8_t *ModbusData::get_registers_map() const
 ModbusPeriodicRead ModbusData::get_periodic() const
 {
     return periodic_;
+}
+
+void ModbusData::set_periodic(ModbusPeriodicRead periodic)
+{
+    periodic_ = periodic;
 }
 
 uint32_t ModbusData::get_polling_interval() const

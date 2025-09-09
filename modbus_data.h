@@ -97,6 +97,7 @@ class ModbusData
     uint8_t get_function_code() const;
     uint8_t *get_registers_map() const;
     ModbusPeriodicRead get_periodic() const;
+    void set_periodic(ModbusPeriodicRead periodic);
     uint32_t get_polling_interval() const;
     const char *get_name() const;
     void clear_data();
