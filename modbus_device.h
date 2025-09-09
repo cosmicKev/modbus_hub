@@ -107,6 +107,7 @@ class ModbusDevice
     void set_wait_after_query(uint32_t wait_after_query_ms);
     uint32_t get_wait_after_query() const { return wait_after_query_ms_; }
 
+    void sync_periodic_data();
   private:
     // Member variables
     char name_[100];

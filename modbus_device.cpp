@@ -8,9 +8,11 @@
 #include <cstring>
 #include <esp_timer.h>
 #include <psram_allocator.h>
+#include "time_utils.h"
 
 #define MODBUS_DEVICE_WAIT_MUTEX_LOCK_MS 1000
 #define MODBUS_DEVICE_DEFAULT_POLLING_INTERVAL_MS 5000
+#define MODBUS_DEVICE_DEFAULT_WAIT_AFTER_QUERY_MS 50
 #define MODBUS_DEVICE_DEFAULT_TIMEOUT_WAIT_TIME_MS 2 * MODBUS_DEVICE_DEFAULT_POLLING_INTERVAL_MS
 #define MODBUS_DEVICE_MAX_DELAY_MS 30000
 const char TAG[] = "modbus_device";
@@ -23,6 +25,12 @@ ModbusDevice::ModbusDevice(const char *name, uint8_t address) : modbus_address_(
 {
     // Copy name safely
     strncpy(name_, name, strlen(name) + 1);
+    epoch_ms = 0;
+    wait_after_query_ms_ = MODBUS_DEVICE_DEFAULT_WAIT_AFTER_QUERY_MS;
+    baudrate_ = 0;
+    data_bits_ = UART_DATA_8_BITS;
+    parity_ = UART_PARITY_DISABLE;
+    stop_bits_ = UART_STOP_BITS_1;
 
     // Initialize mutex
     mutex_ = xSemaphoreCreateRecursiveMutex();
@@ -95,11 +103,11 @@ ModbusData *ModbusDevice::add_read_request(const char *mb_name, uint16_t mb_addr
     if (tmp)
     {
         data.push_front(tmp); // Store the pointer, not a copy
-        ESP_LOGI(TAG, "%s: Successfully added read request %s", name_, mb_name);
+        ESP_LOGI(TAG, "%s: Successfully added read request %s: Addr: %d(%x) reg_len: %d", name_, mb_name, mb_address, mb_address, mb_size);
     }
     else
     {
-        ESP_LOGE(TAG, "%s: Failed to create ModbusData for %s", name_, mb_name);
+        ESP_LOGE(TAG, "%s: Failed to create ModbusData for %s: Addr: %d(%x) reg_len: %d", name_, mb_name, mb_address, mb_address, mb_size);
     }
     unlock();
     return tmp; // Return nullptr if creation failed
@@ -177,7 +185,6 @@ void ModbusDevice::remove_request(ModbusData *dev_data)
     ESP_LOGI(TAG, "%s: Removing request %s", name_, dev_data->get_name());
     if(data.remove(dev_data) == 1)
     {
-        ESP_LOGI(TAG, "%s: Successfully removed request %s", name_, dev_data->get_name());
         delete dev_data; // Clean up the removed request
     }
     else
@@ -212,4 +219,22 @@ void ModbusDevice::set_wait_after_query(uint32_t wait_after_query_ms)
         return;
     }
     wait_after_query_ms_ = wait_after_query_ms;
+}
+
+void ModbusDevice::sync_periodic_data()
+{
+    if(!lock(MODBUS_DEVICE_MAX_DELAY_MS))
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for sync periodic data", name_);
+        return;
+    }
+    for(auto &request : data)
+    {
+        if(request->get_periodic() == ModbusPeriodicRead::PERIODIC)
+        {
+            // Resets last read time.
+            request->set_last_read_time_ms(0);
+        }
+    }
+    unlock();
 }
