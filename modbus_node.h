@@ -17,11 +17,10 @@
 enum class ModbusNodeState
 {
     IDLE,
-    CONNECTING,
-    CONNECTED,
+    WAITING_FOR_NETWORK,
+    CONNECTING_TO_DEVICE,
     RUNNING,
     SUSPENDED,  // Add suspended state
-    DISCONNECTED,
 };
 
 enum class ModbusNodeInterfaceType
@@ -52,7 +51,7 @@ class ModbusNode
     // Add suspend/resume methods
     void suspend();
     void resume();
-    bool is_suspended() const { return suspended_; }
+    bool is_suspended() const { return _is_suspended; }
 
     bool read_request(ModbusDevice *device, ModbusData *request);
     bool write_request(ModbusDevice *device, ModbusData *request);
@@ -61,6 +60,8 @@ class ModbusNode
     bool has_device(ModbusDevice *device);
     bool empty();
 
+    // States
+    void running_state();
 
     // Handles mutex
     bool lock(uint32_t timeout = portMAX_DELAY);
@@ -81,10 +82,11 @@ class ModbusNode
     // List of devices managed by the node.
     std::forward_list<ModbusDevice *, PsramAllocator<ModbusDevice *>> devices;
     ModbusNodeState state;
+    ModbusNodeState _previous_state;
     char name_[64]; // RTU:/dev/ttyUSB0 or TCP:192.168.1.100:502
     // Thread-related members
     TaskHandle_t thread_;
-    bool running_;
+    volatile bool running_;
     TaskHandle_t ez_phy_task_;
     TaskHandle_t ez_interface_task_;
 
@@ -105,7 +107,8 @@ class ModbusNode
     mutable SemaphoreHandle_t _mutex;
 
     // Add suspension state
-    bool suspended_;
+    volatile bool _is_suspended;
+    volatile bool _has_state_change;
 
     // RTU related
     ModbusHAL::UART::Config uartCfg;
