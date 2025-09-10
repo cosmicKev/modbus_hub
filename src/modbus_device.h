@@ -3,12 +3,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "modbus_data.h"
-#include "modbus_utils.h"
 #include "mutex_utils.h"
-#include "psram_allocator.h"
-#include <esp_modbus_common.h>
-#include <esp_modbus_master.h>
 #include <forward_list>
+#include "modbus_allocator.h"
 
 // #include "EZModbus.h" // Commented out until EzModbus is properly included
 
@@ -90,7 +87,7 @@ class ModbusDevice
 
     ModbusData *add_write_request(const char *mb_name, uint16_t mb_address, uint16_t mb_size, uint8_t mb_function_code);
 
-    const std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> &get_requests_list();
+    const std::forward_list<ModbusData *, ModbusAllocator<ModbusData *>> &get_requests_list();
     const char *get_name();
     uint8_t get_address() const;
 
@@ -118,7 +115,7 @@ class ModbusDevice
     SemaphoreHandle_t mutex_;
 
     // We dont know how many frames we will have.
-    std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> data;
+    std::forward_list<ModbusData *, ModbusAllocator<ModbusData *>> data;
     // RTU configuration
     uint32_t baudrate_;
     uart_word_length_t data_bits_;

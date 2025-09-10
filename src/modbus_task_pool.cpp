@@ -5,7 +5,6 @@
 #include "modbus_task_pool.h"
 #include "esp_log.h"
 #include <cstdlib>
-#include "psram.h"
 
 static const char *TAG = "ModbusTaskPool";
 
@@ -77,7 +76,7 @@ TaskHandle_t TaskPool::createTask(TaskFunction_t pxTaskCode, const char *pcName,
         if (!_taskPool[i].isUsed)
         {
             // Allocate stack in PSRAM
-            StackType_t *stack = static_cast<StackType_t *>(psram_malloc(usStackDepth * sizeof(StackType_t)));
+            StackType_t *stack = static_cast<StackType_t *>(heap_caps_malloc(usStackDepth * sizeof(StackType_t), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
             if (!stack)
             {
                 ESP_LOGE(TAG, "Failed to allocate PSRAM for task stack, size: %zu", usStackDepth);

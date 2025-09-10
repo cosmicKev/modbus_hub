@@ -9,9 +9,6 @@
 #include "freertos/task.h"
 #include "modbus_task_pool.h"
 #include "modbus_utils.h"
-#include "psram.h"
-#include "time_utils.h"
-#include "network.h"
     
 constexpr char TAG[] = "ModbusNode";
 
@@ -251,9 +248,9 @@ void ModbusNode::initialize_communication()
     if (interface_type == ModbusNodeInterfaceType::TCP)
     {
         // Allocate & Create for PHY
-        tcp_phy = static_cast<ModbusHAL::TCP*>(psram_malloc(sizeof(ModbusHAL::TCP)));
-        tcp_interface = static_cast<ModbusInterface::TCP*>(psram_malloc(sizeof(ModbusInterface::TCP)));
-        client = static_cast<Modbus::Client*>(psram_malloc(sizeof(Modbus::Client)));
+        tcp_phy = static_cast<ModbusHAL::TCP*>(heap_caps_malloc(sizeof(ModbusHAL::TCP), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
+        tcp_interface = static_cast<ModbusInterface::TCP*>(heap_caps_malloc(sizeof(ModbusInterface::TCP), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
+        client = static_cast<Modbus::Client*>(heap_caps_malloc(sizeof(Modbus::Client), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
 
         if(!tcp_phy || !tcp_interface || !client)
         {
@@ -309,7 +306,7 @@ void ModbusNode::initialize_communication()
         ESP_LOGI(TAG, "%s: UART config: UartNum:%d, Baud:%lu, Config:0x%04" PRIx32 ", RxPin:%d, TxPin:%d, DePin:%d", name_, uartCfg.uartNum, (unsigned long)uartCfg.baud, uartCfg.config, uartCfg.rxPin, uartCfg.txPin, uartCfg.dePin);
         
         // Pre-allocate PSRAM memory for RTU objects
-        rtu_phy = static_cast<ModbusHAL::UART*>(psram_malloc(sizeof(ModbusHAL::UART)));
+        rtu_phy = static_cast<ModbusHAL::UART*>(heap_caps_malloc(sizeof(ModbusHAL::UART), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
         if (!rtu_phy) {
             ESP_LOGE(TAG, "%s: Failed to allocate RTU PHY in PSRAM", name_);
             return;
@@ -317,7 +314,7 @@ void ModbusNode::initialize_communication()
         // Use placement new to construct the object in PSRAM
         rtu_phy = new (rtu_phy) ModbusHAL::UART(uartCfg);
         
-        rtu_interface = static_cast<ModbusInterface::RTU*>(psram_malloc(sizeof(ModbusInterface::RTU)));
+        rtu_interface = static_cast<ModbusInterface::RTU*>(heap_caps_malloc(sizeof(ModbusInterface::RTU), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
         if (!rtu_interface) {
             ESP_LOGE(TAG, "%s: Failed to allocate RTU interface in PSRAM", name_);
             // Clean up PHY
@@ -329,7 +326,7 @@ void ModbusNode::initialize_communication()
         // Use placement new to construct the object in PSRAM
         rtu_interface = new (rtu_interface) ModbusInterface::RTU(*rtu_phy, Modbus::CLIENT);
         
-        client = static_cast<Modbus::Client*>(psram_malloc(sizeof(Modbus::Client)));
+        client = static_cast<Modbus::Client*>(heap_caps_malloc(sizeof(Modbus::Client), MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM));
         if (!client) {
             ESP_LOGE(TAG, "%s: Failed to allocate Modbus client in PSRAM", name_);
             // Clean up interface and PHY
@@ -483,7 +480,7 @@ void ModbusNode::run_worker()
             case ModbusNodeState::WAITING_FOR_NETWORK:
                 vTaskDelay(pdMS_TO_TICKS(1000));
                 //Wait for network to be ready
-                if (strlen(get_network_ip_address()) > 0)
+                if (modbus_utils_has_valid_ip_address())
                 {
                     ESP_LOGI(TAG, "%s: Network is ready, connecting to device", name_);
                     state = ModbusNodeState::CONNECTING_TO_DEVICE;
@@ -581,7 +578,7 @@ void ModbusNode::running_state()
         // Only update time if we sucessefully had at least one good communication.
         if(updated_once)
         {
-            device->set_timestamp(get_time());
+            device->set_timestamp(modbus_utils_get_time());
         }
         device->unlock();
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -661,7 +658,7 @@ void ModbusNode::remove_device(ModbusDevice *device)
 
 void *ModbusNode::operator new(size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusNode::operator delete(void *ptr) noexcept
@@ -671,7 +668,7 @@ void ModbusNode::operator delete(void *ptr) noexcept
 
 void *ModbusNode::operator new[](size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusNode::operator delete[](void *ptr) noexcept

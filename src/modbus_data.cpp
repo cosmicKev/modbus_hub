@@ -1,6 +1,6 @@
 #include "modbus_data.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "psram.h"
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -185,7 +185,7 @@ const char *ModbusData::get_name() const
 
 void *ModbusData::operator new(size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusData::operator delete(void *ptr) noexcept
@@ -195,7 +195,7 @@ void ModbusData::operator delete(void *ptr) noexcept
 
 void *ModbusData::operator new[](size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusData::operator delete[](void *ptr) noexcept

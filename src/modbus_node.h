@@ -8,7 +8,6 @@
 #include "freertos/event_groups.h"
 #include "modbus_device.h"
 #include "mutex_utils.h"
-#include "psram.h"
 #include <forward_list>
 #include <memory>
 
@@ -80,7 +79,7 @@ class ModbusNode
     void initialize_communication();
     void deinitialize_communication();
     // List of devices managed by the node.
-    std::forward_list<ModbusDevice *, PsramAllocator<ModbusDevice *>> devices;
+    std::forward_list<ModbusDevice *, ModbusAllocator<ModbusDevice *>> devices;
     ModbusNodeState state;
     ModbusNodeState _previous_state;
     char name_[64]; // RTU:/dev/ttyUSB0 or TCP:192.168.1.100:502

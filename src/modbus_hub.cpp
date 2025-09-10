@@ -1,11 +1,9 @@
 #include "modbus_hub.h"
 // #include "modbus_device.h"
-#include "config.h"
 #include "hal/uart_types.h"
-#include "modbus_utils.h"
-#include "psram.h"
 #include <cstdint>
 #include "string.h"
+#include "modbus_utils.h"
 
 constexpr char TAG[] = "ModbusHub";
 
@@ -219,7 +217,7 @@ void ModbusHub::remove_device(ModbusDevice *device)
 
 void *ModbusHub::operator new(size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusHub::operator delete(void *ptr) noexcept
@@ -229,7 +227,7 @@ void ModbusHub::operator delete(void *ptr) noexcept
 
 void *ModbusHub::operator new[](size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusHub::operator delete[](void *ptr) noexcept

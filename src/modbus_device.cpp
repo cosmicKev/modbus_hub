@@ -3,12 +3,11 @@
 #include "esp_log.h"
 #include "modbus_data.h"
 #include "mutex_utils.h"
-#include "psram.h"
 #include <cstdint>
 #include <cstring>
 #include <esp_timer.h>
-#include <psram_allocator.h>
-#include "time_utils.h"
+#include "modbus_utils.h"
+#include "modbus_allocator.h"
 
 #define MODBUS_DEVICE_WAIT_MUTEX_LOCK_MS 1000
 #define MODBUS_DEVICE_DEFAULT_POLLING_INTERVAL_MS 5000
@@ -135,7 +134,7 @@ ModbusData *ModbusDevice::add_write_request(const char *mb_name, uint16_t mb_add
     return tmp;
 }
 
-const std::forward_list<ModbusData *, PsramAllocator<ModbusData *>> &ModbusDevice::get_requests_list()
+const std::forward_list<ModbusData *, ModbusAllocator<ModbusData *>> &ModbusDevice::get_requests_list()
 {
     return data;
 }
@@ -152,7 +151,7 @@ uint8_t ModbusDevice::get_address() const
 
 void *ModbusDevice::operator new(size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusDevice::operator delete(void *ptr) noexcept
@@ -162,7 +161,7 @@ void ModbusDevice::operator delete(void *ptr) noexcept
 
 void *ModbusDevice::operator new[](size_t size)
 {
-    return psram_malloc(size);
+    return heap_caps_malloc(size, MALLOC_CAP_8BIT | MALLOC_CAP_SPIRAM);
 }
 
 void ModbusDevice::operator delete[](void *ptr) noexcept

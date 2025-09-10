@@ -8,7 +8,6 @@
 #include "modbus_device.h"
 #include "modbus_node.h"
 #include "mutex_utils.h"
-#include "psram.h"
 #include <forward_list>
 #include <memory>
 #include "modbus_rtu_iface.h"
@@ -35,7 +34,7 @@ class ModbusHub
 
   private:
     // List of devices managed by the node.
-    std::forward_list<ModbusNode *, PsramAllocator<ModbusNode *>> nodes;
+    std::forward_list<ModbusNode *, ModbusAllocator<ModbusNode *>> nodes;
     
     // Mutex for thread safety
     mutable SemaphoreHandle_t _mutex;
@@ -46,7 +45,7 @@ class ModbusHub
     ModbusNode *get_node(const char *iface);
 
     // Available PHY RTU, added at startup by the user.
-    std::forward_list<ModbusRtuIface*, PsramAllocator<ModbusRtuIface*>> phy_rtu_ifaces;
+    std::forward_list<ModbusRtuIface*, ModbusAllocator<ModbusRtuIface*>> phy_rtu_ifaces;
 };
 
 extern ModbusHub modbus_hub;
