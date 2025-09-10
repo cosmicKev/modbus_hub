@@ -1,6 +1,5 @@
 #pragma once
 
-#include "esp_log.h"
 #include <cstdlib>
 #include <type_traits>
 #include "esp_heap_caps.h"
@@ -26,7 +25,6 @@ template <typename T> struct ModbusAllocator
         {
             return p;
         }
-        ESP_LOGE("PSRAM", "Failed to allocate %zu bytes", n * sizeof(T));
         std::abort();
     }
 
