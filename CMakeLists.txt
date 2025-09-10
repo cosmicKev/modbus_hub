@@ -6,6 +6,7 @@ set(SRCS
     "src/modbus_device.cpp"
     "src/modbus_task_pool.cpp"
     "src/modbus_rtu_iface.cpp"
+    "src/modbus_utils.cpp"
 )
 
 set(INCLUDE_DIRS "src")
