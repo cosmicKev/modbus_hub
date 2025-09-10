@@ -43,7 +43,6 @@ ModbusHub::~ModbusHub()
 
 ModbusNode *ModbusHub::create_node(const char *ip, uint16_t port)
 {
-
     ModbusNode *tmp = ModbusNode::create(ip, port);
     if (tmp)
     {
@@ -248,5 +247,22 @@ void ModbusHub::add_phy_rtu_iface(const char *iface, uart_port_t uart_num, uint8
         ESP_LOGE(TAG, "Failed to create PHY RTU interface for %s", iface);
     }
 }
+
+void ModbusHub::suspend_all()
+{
+    for(auto &node : nodes)
+    {
+        node->suspend();
+    }
+}
+
+void ModbusHub::resume_all()
+{
+    for(auto &node : nodes)
+    {
+        node->resume();
+    }
+}
+
 
 ModbusHub modbus_hub;

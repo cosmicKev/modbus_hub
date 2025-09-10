@@ -32,6 +32,9 @@ class ModbusHub
     void *operator new[](size_t size);
     void operator delete[](void *ptr) noexcept;
 
+    void suspend_all();
+    void resume_all();
+
   private:
     // List of devices managed by the node.
     std::forward_list<ModbusNode *, ModbusAllocator<ModbusNode *>> nodes;
