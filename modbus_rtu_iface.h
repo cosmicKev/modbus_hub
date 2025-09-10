@@ -6,7 +6,7 @@
 class ModbusRtuIface
 {
     public:
-    ModbusRtuIface(char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits);
+    ModbusRtuIface(const char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits);
     ~ModbusRtuIface();
 
     uart_port_t get_uart_num() const { return uart_num_; }

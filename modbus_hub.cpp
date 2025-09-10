@@ -158,7 +158,7 @@ ModbusDevice *ModbusHub::add_tcp_device(const char *name, char *ip, uint16_t por
     return device;
 }
 
-ModbusDevice *ModbusHub::add_rtu_device(const char *name, char *iface, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits, uint8_t address)
+ModbusDevice *ModbusHub::add_rtu_device(const char *name, const char *iface, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits, uint8_t address)
 {
     ScopedMutex lock(_mutex);
     if (!lock.isLocked()) {
@@ -205,11 +205,11 @@ void ModbusHub::remove_device(ModbusDevice *device)
         {
             node->remove_device(device);
 
-            // If the node is empty, stop it.
-            if (node->empty())
-            {
-                delete node;
-            }
+            // // If the node is empty, stop it.
+            // if (node->empty())
+            // {
+            //     delete node;
+            // }
 
             break;
         }
@@ -237,7 +237,7 @@ void ModbusHub::operator delete[](void *ptr) noexcept
     free(ptr);
 }
 
-void ModbusHub::add_phy_rtu_iface(char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits)
+void ModbusHub::add_phy_rtu_iface(const char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits)
 {
     ModbusRtuIface *tmp = new ModbusRtuIface(iface, uart_num, tx_pin, rx_pin, rts_pin, baudrate, data_bits, parity, stop_bits);
     if(tmp)

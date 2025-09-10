@@ -1,7 +1,7 @@
 #include "modbus_rtu_iface.h"
 #include "string.h"
 
-ModbusRtuIface::ModbusRtuIface(char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits)
+ModbusRtuIface::ModbusRtuIface(const char *iface, uart_port_t uart_num, uint8_t tx_pin, uint8_t rx_pin, uint8_t rts_pin, uint32_t baudrate, uart_word_length_t data_bits, uart_parity_t parity, uart_stop_bits_t stop_bits)
 {
     strncpy(iface_, iface, sizeof(iface_));
     uart_num_ = uart_num;
