@@ -13,4 +13,4 @@ set(INCLUDE_DIRS "src")
 
 idf_component_register(SRCS "${SRCS}"
                     INCLUDE_DIRS "${INCLUDE_DIRS}"
-                    REQUIRES ezmodbus) 
+                    REQUIRES ezmodbus esp_netif lwip) 
