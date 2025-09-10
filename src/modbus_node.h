@@ -80,7 +80,7 @@ class ModbusNode
     void deinitialize_communication();
     // List of devices managed by the node.
     std::forward_list<ModbusDevice *, ModbusAllocator<ModbusDevice *>> devices;
-    ModbusNodeState state;
+    volatile ModbusNodeState state;
     ModbusNodeState _previous_state;
     char name_[64]; // RTU:/dev/ttyUSB0 or TCP:192.168.1.100:502
     // Thread-related members
@@ -92,6 +92,8 @@ class ModbusNode
     void run_worker();
     static void thread_wrapper(void *arg);
 
+    void handle_duplicated_address_if_exists(ModbusDevice *device);
+    
     char ip[16];
     uint16_t port;
 
