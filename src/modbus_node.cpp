@@ -1,11 +1,6 @@
 #include "modbus_node.h"
 #include "drivers/ModbusHAL_UART.h"
 #include "EZModbus.h"
-#include "esp_attr.h"
-#include "esp_err.h"
-#include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/projdefs.h"
 #include "freertos/task.h"
 #include "modbus_task_pool.h"
 #include "modbus_utils.h"
@@ -485,6 +480,8 @@ void ModbusNode::run_worker()
                     ESP_LOGI(TAG, "%s: Network is ready, connecting to device", name_);
                     state = ModbusNodeState::CONNECTING_TO_DEVICE;
                 }
+                ESP_LOGI(TAG, "%s: Waiting for a valid IP address.", name_);
+
                 break;
 
             case ModbusNodeState::CONNECTING_TO_DEVICE:
@@ -522,7 +519,12 @@ void ModbusNode::running_state()
             ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusNode", name_);
             return;
         }
-
+        // Only will be released when fix the duplicated and restart the device.
+        if(device->get_error() == ModbusDeviceError::DUPLICATED_ADDRESS)
+        {
+            device->unlock();
+            continue;
+        }
         bool updated_once = false;
         const auto &requests = device->get_requests_list();
         for (auto request : requests)
@@ -562,7 +564,6 @@ void ModbusNode::running_state()
 
             if((request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS || request->get_function_code() == Modbus::FunctionCode::READ_INPUT_REGISTERS) && read_request(device, request))
             {
-                printf("flush\n");
                 ESP_LOGI(TAG, "%s: Success Read request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
                 updated_once = true;
             }
@@ -585,6 +586,19 @@ void ModbusNode::running_state()
     }
 }
 
+void ModbusNode::handle_duplicated_address_if_exists(ModbusDevice *device)
+{
+    uint8_t address = device->get_address();
+    for(auto &dev : devices)
+    {
+        if(dev != device && dev->get_address() == address)
+        {
+            device->set_error(ModbusDeviceError::DUPLICATED_ADDRESS);
+            break;
+        }
+    }
+}
+
 // Add device to this node
 void ModbusNode::add_device(ModbusDevice *device)
 {
@@ -594,28 +608,39 @@ void ModbusNode::add_device(ModbusDevice *device)
         return;
     }
     // Request suspension
-    // suspend();
-    // // Wait for suspension to happen.
-    // while(!_is_suspended)
-    // {
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    // }
-    if (device)
+    suspend();
+    // Wait for suspension to happen.
+    while(!_is_suspended)
     {
-        devices.push_front(device); // Store the pointer, not a copy
-        ModbusDevice *tmp = devices.front();
-        ESP_LOGI(TAG, "%s: Device %s added.", name_, tmp->get_name());
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
-    // No devices should be running since its suspended.
-    // for(auto &dev : devices)
-    // {
-    //     if(dev->lock(1000))
-    //     {
-    //         dev->sync_periodic_data();
-    //         dev->unlock();
-    //     }
-    // }
-    // resume();
+
+    if(!device)
+    {
+        ESP_LOGE(TAG, "%s: Device is null", name_);
+        return;
+    }
+    if(!device->lock(1000))
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for device addition. Device: %s", name_, device->get_name());
+        return;
+    }
+
+    handle_duplicated_address_if_exists(device);
+
+    devices.push_front(device); // Store the pointer, not a copy
+    ModbusDevice *tmp = devices.front();
+    ESP_LOGI(TAG, "%s: Device %s added.", name_, tmp->get_name());
+        device->unlock();
+    for(auto &dev : devices)
+    {
+        if(dev->lock(1000))
+        {
+            dev->sync_periodic_data();
+            dev->unlock();
+        }
+    }
+    resume();
 }
 
 // Remove device from this node
@@ -626,34 +651,36 @@ void ModbusNode::remove_device(ModbusDevice *device)
         ESP_LOGE(TAG, "%s: Failed to acquire mutex for device removal", name_);
         return;
     }
-    // suspend();
+    suspend();
     // Wait for state to change.
-    // while(!_is_suspended)
-    // {
-    //     vTaskDelay(pdMS_TO_TICKS(100));
-    // }
-    if (device)
+    while(!_is_suspended)
     {
-        ESP_LOGI(TAG, "%s: Removing device %s.", name_, device->get_name());
-        // Destruct 
-        delete device;
-        // Removes the pointer
-        devices.remove(device);
-    }
-    else
-    {
-        ESP_LOGE(TAG, "%s: Device is null", name_);
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    // for(auto &dev : devices)
-    // {
-    //     if(dev->lock(1000))
-    //     {
-    //         dev->sync_periodic_data();
-    //         dev->unlock();
-    //     }
-    // }
-    // resume();
+    ESP_LOGI(TAG, "%s: Suspended, removing device %s.", name_, device->get_name());
+    if (!device)
+    {
+        ESP_LOGE(TAG, "%s: Device is null", name_);
+        return;
+    }
+
+    ESP_LOGI(TAG, "%s: Removing device %s.", name_, device->get_name());
+    // Removes the pointer
+    devices.remove(device);
+    // Destruct 
+    delete device;
+
+    // For all other devices, sync the times of the periodic data because now they are out of sync
+    for(auto &dev : devices)
+    {
+        if(dev->lock(1000))
+        {
+            dev->sync_periodic_data();
+            dev->unlock();
+        }
+    }
+    resume();
 }
 
 void *ModbusNode::operator new(size_t size)

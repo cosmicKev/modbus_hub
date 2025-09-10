@@ -59,7 +59,7 @@ enum class ModbusConnectionMode : uint8_t
     TCP = 0x02,
 };
 
-enum class ModbusSuspendReason : uint8_t
+enum class ModbusDeviceError : uint8_t
 {
     NONE = 0,
     DUPLICATED_ADDRESS = 1,
@@ -105,6 +105,10 @@ class ModbusDevice
     uint32_t get_wait_after_query() const { return wait_after_query_ms_; }
 
     void sync_periodic_data();
+
+    void set_error(ModbusDeviceError error);
+    ModbusDeviceError get_error() const { return error_; }
+
   private:
     // Member variables
     char name_[100];
@@ -122,6 +126,8 @@ class ModbusDevice
     uart_parity_t parity_;
     uart_stop_bits_t stop_bits_;
 
+
+    ModbusDeviceError error_;
     // Wait after query
     uint32_t wait_after_query_ms_ = 0;
 };

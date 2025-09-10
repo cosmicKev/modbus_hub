@@ -231,9 +231,20 @@ void ModbusDevice::sync_periodic_data()
     {
         if(request->get_periodic() == ModbusPeriodicRead::PERIODIC)
         {
-            // Resets last read time.
+            // Resets last read time. This makes sure next iteration we will read the data.
             request->set_last_read_time_ms(0);
         }
     }
+    unlock();
+}
+
+void ModbusDevice::set_error(ModbusDeviceError error)
+{
+    if(!lock(MODBUS_DEVICE_MAX_DELAY_MS))
+    {
+        ESP_LOGE(TAG, "%s: Failed to lock mutex for set error", name_);
+        return;
+    }
+    error_ = error;
     unlock();
 }
