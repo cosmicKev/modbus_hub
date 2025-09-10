@@ -342,7 +342,7 @@ void ModbusNode::initialize_communication()
             return;
         }
         // Use placement new to construct the object in PSRAM
-        client = new (client) Modbus::Client(*rtu_interface, 10000);
+        client = new (client) Modbus::Client(*rtu_interface, 1000);
         
 
         esp_err_t rtu_result = rtu_phy->begin();
@@ -563,8 +563,9 @@ void ModbusNode::running_state()
                 break;
             }
 
-            if(request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS && read_request(device, request))
+            if((request->get_function_code() == Modbus::FunctionCode::READ_HOLDING_REGISTERS || request->get_function_code() == Modbus::FunctionCode::READ_INPUT_REGISTERS) && read_request(device, request))
             {
+                printf("flush\n");
                 ESP_LOGI(TAG, "%s: Success Read request %s(%u)- %s", name_, device->get_name(), device->get_address(), request->get_name());
                 updated_once = true;
             }
@@ -575,6 +576,7 @@ void ModbusNode::running_state()
                 continue;
             }
             // Required before next query.
+            vTaskDelay(pdMS_TO_TICKS(device->get_wait_after_query()));
         }
         // Only update time if we sucessefully had at least one good communication.
         if(updated_once)
