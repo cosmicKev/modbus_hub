@@ -3,13 +3,15 @@
 #include <ctime>
 #include <esp_netif.h>
 
+#define EPOCH_TIME_2025_01_01 1735689600
+
 uint64_t modbus_utils_get_time()
 {
     sntp_sync_status_t status  =sntp_get_sync_status();
-    if(status == SNTP_SYNC_STATUS_COMPLETED)
+    time_t now;
+    time(&now);
+    if((uint64_t) now > EPOCH_TIME_2025_01_01)
     {
-        time_t now;
-        time(&now);
         return now;
     }
     return 0;
@@ -26,7 +28,8 @@ bool modbus_utils_has_valid_ip_address()
         // Safe because we dont remove interface.
         netif = esp_netif_next_unsafe(nullptr);
         esp_netif_get_ip_info(netif, &ip_info);
-        if (ip_info.ip.addr != 0) {
+        if (ip_info.ip.addr != 0)
+        {
             return true;
         }   
     }while(netif!=nullptr);
