@@ -15,7 +15,7 @@ namespace ModbusTaskPool
 class TaskPool
 {
   public:
-    static constexpr size_t MAX_TASKS = 20;
+    static constexpr size_t MAX_TASKS = CONFIG_MODBUSHUB_MAX_ALLOWED_TASKS_POOL;
 
     struct TaskInfo
     {
