@@ -1,3 +1,15 @@
-idf_component_register(SRCS "modbus_hub.cpp" "modbus_data.cpp" "modbus_node.cpp" "modbus_device.cpp" "modbus_task_pool.cpp" "modbus_rtu_iface.cpp"
-                    INCLUDE_DIRS "."
-                    REQUIRES psram  network ezmodbus) 
+
+set(SRCS
+    "src/modbus_hub.cpp"
+    "src/modbus_data.cpp"
+    "src/modbus_node.cpp"
+    "src/modbus_device.cpp"
+    "src/modbus_task_pool.cpp"
+    "src/modbus_rtu_iface.cpp"
+)
+
+set(INCLUDE_DIRS "src")
+
+idf_component_register(SRCS "${SRCS}"
+                    INCLUDE_DIRS "${INCLUDE_DIRS}"
+                    REQUIRES ezmodbus) 
