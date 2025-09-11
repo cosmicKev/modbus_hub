@@ -168,7 +168,7 @@ ModbusPeriodicRead ModbusData::get_periodic() const
     return periodic_;
 }
 
-void ModbusData::set_periodic(ModbusPeriodicRead periodic)
+void ModbusData::set_request_type(ModbusPeriodicRead periodic)
 {
     periodic_ = periodic;
 }
