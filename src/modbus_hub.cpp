@@ -147,8 +147,11 @@ ModbusDevice *ModbusHub::add_tcp_device(const char *name, char *ip, uint16_t por
             ESP_LOGE(TAG, "Failed to create node for TCP device %s", name);
             return nullptr;
         }
-        // Created, then start it.
-        node->start();
+        if(_has_started)
+        {
+            // Created, then start it.
+            node->start();
+        }
     }
     ModbusDevice *device = new ModbusDevice(name, address);
     node->add_device(device);
@@ -173,8 +176,10 @@ ModbusDevice *ModbusHub::add_rtu_device(const char *name, const char *iface, uin
             ESP_LOGE(TAG, "Failed to create node for RTU device %s", name);
             return nullptr;
         }
-        // Created, then start it.
-        node->start();
+        if(_has_started)
+        {
+            node->start();
+        }
     }
     
     ModbusDevice *device = new ModbusDevice(name, address);
@@ -261,6 +266,16 @@ void ModbusHub::resume_all()
     for(auto &node : nodes)
     {
         node->resume();
+    }
+}
+
+void ModbusHub::start_all()
+{
+    _has_started = true;
+    ESP_LOGI(TAG, "Starting all nodes");
+    for(auto &node : nodes)
+    {
+        node->start();
     }
 }
 

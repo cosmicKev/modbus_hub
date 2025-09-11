@@ -34,6 +34,7 @@ class ModbusHub
 
     void suspend_all();
     void resume_all();
+    void start_all();
 
   private:
     // List of devices managed by the node.
@@ -49,6 +50,8 @@ class ModbusHub
 
     // Available PHY RTU, added at startup by the user.
     std::forward_list<ModbusRtuIface*, ModbusAllocator<ModbusRtuIface*>> phy_rtu_ifaces;
+
+    bool _has_started = false;
 };
 
 extern ModbusHub modbus_hub;

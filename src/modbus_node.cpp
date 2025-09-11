@@ -155,14 +155,12 @@ void ModbusNode::stop()
 }
 
 void ModbusNode::suspend()
-{
-    ESP_LOGI(TAG, "%s: Suspending ModbusNode.", name_);
-    
+{    
     if (!running_) {
-        ESP_LOGW(TAG, "%s: Cannot suspend - not running", name_);
         return;
     }
-    
+    ESP_LOGI(TAG, "%s: Suspending ModbusNode.", name_); 
+
     if (state == ModbusNodeState::SUSPENDED) {
         ESP_LOGW(TAG, "%s: Already suspended", name_);
         return;
@@ -175,6 +173,11 @@ void ModbusNode::suspend()
 
 void ModbusNode::resume()
 {
+
+    if(!running_)
+    {
+        return;
+    }
     ESP_LOGI(TAG, "%s: Resuming ModbusNode.", name_);
     
     if (state != ModbusNodeState::SUSPENDED) {
@@ -593,6 +596,7 @@ void ModbusNode::handle_duplicated_address_if_exists(ModbusDevice *device)
     {
         if(dev != device && dev->get_address() == address)
         {
+            ESP_LOGE(TAG, "%s: Device %s has duplicated address.", name_, device->get_name());
             device->set_error(ModbusDeviceError::DUPLICATED_ADDRESS);
             break;
         }
@@ -607,12 +611,14 @@ void ModbusNode::add_device(ModbusDevice *device)
         ESP_LOGE(TAG, "%s: Failed to acquire mutex for device addition", name_);
         return;
     }
-    // Request suspension
-    suspend();
-    // Wait for suspension to happen.
-    while(!_is_suspended)
-    {
-        vTaskDelay(pdMS_TO_TICKS(100));
+    if(running_){
+        // Request suspension
+        suspend();
+        // Wait for suspension to happen.
+        while(!_is_suspended)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
 
     if(!device)
@@ -640,7 +646,10 @@ void ModbusNode::add_device(ModbusDevice *device)
             dev->unlock();
         }
     }
-    resume();
+    if(running_)
+    {
+        resume();
+    }
 }
 
 // Remove device from this node
@@ -651,13 +660,15 @@ void ModbusNode::remove_device(ModbusDevice *device)
         ESP_LOGE(TAG, "%s: Failed to acquire mutex for device removal", name_);
         return;
     }
-    suspend();
-    // Wait for state to change.
-    while(!_is_suspended)
+    if(running_)
     {
-        vTaskDelay(pdMS_TO_TICKS(100));
+        suspend();
+        // Wait for state to change.
+        while(!_is_suspended)
+        {
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
-
     ESP_LOGI(TAG, "%s: Suspended, removing device %s.", name_, device->get_name());
     if (!device)
     {
@@ -680,7 +691,11 @@ void ModbusNode::remove_device(ModbusDevice *device)
             dev->unlock();
         }
     }
-    resume();
+
+    if(running_)
+    {
+        resume();
+    }
 }
 
 void *ModbusNode::operator new(size_t size)
