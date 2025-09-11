@@ -5,7 +5,6 @@
 #include "mutex_utils.h"
 #include <cstdint>
 #include <cstring>
-#include <esp_timer.h>
 #include "modbus_utils.h"
 #include "modbus_allocator.h"
 
