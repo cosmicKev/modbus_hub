@@ -23,7 +23,6 @@ bool modbus_utils_has_valid_ip_address()
     esp_netif_ip_info_t ip_info;
     
     // Get the first network interface
-    bool valid_ip = false;
     do{
         // Safe because we dont remove interface.
         netif = esp_netif_next_unsafe(nullptr);
