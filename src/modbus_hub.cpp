@@ -276,6 +276,7 @@ void ModbusHub::start_all()
     for(auto &node : nodes)
     {
         node->start();
+        vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
 
