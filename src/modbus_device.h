@@ -90,7 +90,7 @@ class ModbusDevice
     const std::forward_list<ModbusData *, ModbusAllocator<ModbusData *>> &get_requests_list();
     const char *get_name();
     uint8_t get_address() const;
-
+    uint32_t get_baudrate() const { return baudrate_; }
     void remove_request(ModbusData *dev_data);
 
     void *operator new(size_t size);
