@@ -1,0 +1,10 @@
+menu "Modbus Hub"
+    config MODBUSHUB_MAX_ALLOWED_TASKS_POOL
+        int "Maximum allowed tasks pool"
+        range 1 50
+        default 20
+        help
+            Maximum allowed tasks pool
+            This is the maximum number of tasks that can be created by the modbus hub
+            For each interface a certain number of tasks will be created. 3 for TCP, 2 for RTU.
+endmenu
