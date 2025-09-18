@@ -1,6 +1,7 @@
 #include "modbus_node.h"
 #include "drivers/ModbusHAL_UART.h"
 #include "EZModbus.h"
+#include "esp_log.h"
 #include "freertos/task.h"
 #include "modbus_task_pool.h"
 #include "modbus_utils.h"
@@ -520,7 +521,7 @@ void ModbusNode::running_state()
         if(!device->lock(100))
         {
             ESP_LOGE(TAG, "%s: Failed to lock mutex for ModbusNode", name_);
-            return;
+            continue;
         }
         // Only will be released when fix the duplicated and restart the device.
         if(device->get_error() == ModbusDeviceError::DUPLICATED_ADDRESS)
@@ -542,7 +543,11 @@ void ModbusNode::running_state()
         const auto &requests = device->get_requests_list();
         for (auto request : requests)
         {
-
+            if(request == nullptr)
+            {
+                ESP_LOGE(TAG, "%s: Request is null", name_);
+                continue;
+            }
             if(_has_state_change)
             {
                 device->unlock();

@@ -121,7 +121,7 @@ class ModbusData
     bool timeout() const { return status_ == ModbusDataStatus::TIMEDOUT; }
     bool success() const { return status_ == ModbusDataStatus::SUCCESS; }
 
-    uint8_t *data() const { return registers_map_; }
+    uint8_t *data() { return registers_map_; }
     void clear_status() { status_ = ModbusDataStatus::IDLE; }
     void request_data();
     void set_status(ModbusDataStatus status) { status_ = status; }

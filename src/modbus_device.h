@@ -100,8 +100,8 @@ class ModbusDevice
     void *operator new[](size_t size);
     void operator delete[](void *ptr) noexcept;
 
-    uint64_t get_timestamp() const { return epoch_ms; }
-    void set_timestamp(uint64_t timestamp) { epoch_ms = timestamp; }
+    uint64_t get_timestamp() const { return epoch; }
+    void set_timestamp(uint64_t timestamp) { epoch = timestamp; }
 
     void set_wait_after_query(uint32_t wait_after_query_ms);
     uint32_t get_wait_after_query() const { return wait_after_query_ms_; }
@@ -115,7 +115,7 @@ class ModbusDevice
     // Member variables
     char name_[100];
     uint8_t modbus_address_;
-    uint64_t epoch_ms;
+    uint64_t epoch;
 
     // Mutex for thread safety
     SemaphoreHandle_t mutex_;
