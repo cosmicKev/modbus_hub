@@ -611,6 +611,7 @@ void ModbusNode::handle_duplicated_address_if_exists(ModbusDevice *device)
             break;
         }
     }
+    device->set_error(ModbusDeviceError::NONE);
 }
 
 // Add device to this node
