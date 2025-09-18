@@ -91,6 +91,8 @@ class ModbusDevice
     const char *get_name();
     uint8_t get_address() const;
     uint32_t get_baudrate() const { return baudrate_; }
+    uart_parity_t get_parity() const { return parity_; }
+    void set_parity(uart_parity_t parity) { parity_ = parity; }
     void remove_request(ModbusData *dev_data);
 
     void *operator new(size_t size);

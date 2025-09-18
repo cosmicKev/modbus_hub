@@ -529,14 +529,14 @@ void ModbusNode::running_state()
             continue;
         }
 
-        // We need RTU to check for baudrate
-        if(rtu_phy && uartCfg.baud != device->get_baudrate())
+     
+        if(rtu_phy && (rtu_phy->getBaudrate() != device->get_baudrate() || rtu_phy->getParity() != device->get_parity()))
         {
             rtu_phy->setBaudrate(device->get_baudrate());
-            ESP_LOGW(TAG, "%s: Changing baudrate. %"PRIu32" to %"PRIu32, name_, uartCfg.baud, device->get_baudrate());
-            uartCfg.baud = device->get_baudrate();
+            rtu_phy->setParity(device->get_parity());
+            ESP_LOGW(TAG, "%s: Changing baudrate. %" PRIu32 " to %" PRIu32, name_, rtu_phy->getBaudrate(), device->get_baudrate());
+            ESP_LOGW(TAG, "%s: Changing parity. %" PRIu32 " to %" PRIu32, name_, (uint32_t)rtu_phy->getParity(), (uint32_t)device->get_parity());
         }
-
 
         bool updated_once = false;
         const auto &requests = device->get_requests_list();
